@@ -200,7 +200,8 @@ COPY --from=kernel-builder /build/linux/arch/x86/boot/bzImage /build/myiso/bzIma
 COPY --from=initramfs-builder /build/initramfs.cpio.gz /build/myiso/initramfs
 
 WORKDIR /build
-RUN cp /build/syslinux/bios/core/isolinux.bin /build/myiso/isolinux/ && \
+RUN mkdir -p /build/myiso/isolinux && \
+    cp /build/syslinux/bios/core/isolinux.bin /build/myiso/isolinux/ && \
     cp /build/syslinux/bios/com32/elflink/ldlinux/ldlinux.c32 /build/myiso/isolinux/
 
 COPY syslinux.cfg /build/myiso/isolinux/isolinux.cfg
