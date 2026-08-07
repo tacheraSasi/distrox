@@ -151,7 +151,7 @@ RUN apk add --no-cache \
         file \
         which \
         tar gzip xz bzip2 \
-        ca-certificates
+        ca-certificates \
     && rm -rf /var/cache/apk/*
 
 # Enable the standard OpenRC runlevels (sysinit/boot/default).
