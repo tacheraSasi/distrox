@@ -54,7 +54,7 @@ if [[ "${CLEAN_DOCKER}" == "true" ]]; then
     echo -e "${BLUE}Cleaning Docker images...${NC}"
     docker rmi handbuilt-linux:latest 2>/dev/null || echo -e "${YELLOW}Image not found${NC}"
     docker rmi handbuilt-linux:kernel 2>/dev/null || true
-    docker rmi handbuilt-linux:busybox 2>/dev/null || true
+    docker rmi handbuilt-linux:alpine 2>/dev/null || true
     docker rmi handbuilt-linux:iso 2>/dev/null || true
     echo -e "${GREEN}✓ Docker images removed${NC}"
 fi

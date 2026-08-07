@@ -11,7 +11,6 @@ services:
       target: runtime
       args:
         - LINUX_VERSION=master
-        - BUSYBOX_VERSION=master
         - SYSLINUX_VERSION=6.03
         - BUILD_JOBS=auto
     image: handbuilt-linux:latest
@@ -21,11 +20,10 @@ services:
       - ./output:/output
       # Mount source configurations for easy editing
       - ./linux.config:/distro/linux.config:ro
-      - ./busybox.config:/distro/busybox.config:ro
     environment:
       - DISTRO_HOME=/distro
     command: >
-      bash -c "
+      sh -c "
         echo 'Copying build artifacts to /output...' &&
         mkdir -p /output &&
         cp /distro/output.iso /output/output.iso &&
@@ -58,7 +56,7 @@ services:
       - DISTRO_HOME=/distro
       - PS1=\[\033[1;32m\]handbuilt-linux-dev\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$
     working_dir: /distro
-    command: /bin/bash
+    command: /bin/sh
     networks:
       - handbuilt-linux-net
     profiles:
@@ -78,7 +76,7 @@ services:
     command: >
       qemu-system-x86_64
         -cdrom /images/output.iso
-        -m 512M
+        -m 1024M
         -nographic
     networks:
       - handbuilt-linux-net
