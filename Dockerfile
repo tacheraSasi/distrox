@@ -8,7 +8,7 @@ FROM debian:sid-slim AS builder-base
 ARG LINUX_VERSION=master
 ARG SYSLINUX_VERSION=6.03
 ARG DEBIAN_FRONTEND=noninteractive
-ARG BUILD_JOBS=
+ARG BUILD_JOBS=4
 
 LABEL maintainer="handbuilt-linux-project"
 LABEL description="Custom Linux distribution builder"
