@@ -6,7 +6,6 @@
 FROM debian:sid-slim AS builder-base
 
 ARG LINUX_VERSION=master
-ARG BUSYBOX_VERSION=master
 ARG SYSLINUX_VERSION=6.03
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BUILD_JOBS=
@@ -50,7 +49,6 @@ WORKDIR /build
 FROM builder-base AS source-downloader
 
 ARG LINUX_VERSION=master
-ARG BUSYBOX_VERSION=master
 ARG SYSLINUX_VERSION=6.03
 
 RUN mkdir -p /build/initramfs && \
@@ -68,17 +66,6 @@ RUN --mount=type=cache,target=/build/cache \
     cp -r linux /build/cache/linux; \
     else \
     cp -r /build/cache/linux linux; \
-    fi
-
-# Clone BusyBox (shallow, branch/tag from ARG)
-WORKDIR /build/sources
-RUN --mount=type=cache,target=/build/cache \
-    if [ ! -d /build/cache/busybox ]; then \
-    git clone --depth 1 --branch "${BUSYBOX_VERSION}" https://git.busybox.net/busybox busybox || \
-    git clone --depth 1 https://git.busybox.net/busybox busybox; \
-    cp -r busybox /build/cache/busybox; \
-    else \
-    cp -r /build/cache/busybox busybox; \
     fi
 
 # Download and extract Syslinux (tries multiple URLs)
@@ -116,77 +103,75 @@ COPY --from=source-downloader /build/sources/linux /build/linux
 COPY linux.config /build/linux/.config
 
 WORKDIR /build/linux
+# NOTE: do NOT strip arch/x86/boot/bzImage — it is a raw binary with an
+# embedded EFI stub, and binutils "successfully" rewrites it as a PE file,
+# corrupting the boot sector (breaks the AA55/HdrS kernel header).
 RUN make olddefconfig && \
-    make -j"${BUILD_JOBS:-$(nproc)}" && \
-    (strip --strip-debug arch/x86/boot/bzImage 2>/dev/null || true)
+    make -j"${BUILD_JOBS:-$(nproc)}"
 
 # -----------------------------------------------------------------------------
-# Stage: busybox-builder
+# Stage: alpine-rootfs-builder
 # -----------------------------------------------------------------------------
-FROM builder-base AS busybox-builder
+FROM alpine:latest AS alpine-rootfs-builder
 
-ARG BUILD_JOBS
-ARG BUSYBOX_VERSION=master
+# Install the userspace: base suite, OpenRC, CLI tools, and the dev
+# toolchain we care about (Go + Zig). Keep it text-only — no GUI packages.
+RUN apk add --no-cache \
+        alpine-base \
+        openrc \
+        bash \
+        coreutils \
+        findutils \
+        grep \
+        sed \
+        gawk \
+        git \
+        curl \
+        wget \
+        go \
+        zig \
+        build-base \
+        musl-dev \
+        linux-headers \
+        openssh-client \
+        vim \
+        cpio \
+    && rm -rf /var/cache/apk/*
 
-COPY --from=source-downloader /build/sources/busybox /build/busybox
-COPY busybox.config /build/busybox/.config
+# Enable the standard OpenRC runlevels (sysinit/boot/default).
+# mdev handles device nodes; hwdrivers loads modules (none shipped - harmless).
+RUN rc-update add devfs sysinit \
+    && rc-update add dmesg sysinit \
+    && rc-update add mdev sysinit \
+    && rc-update add hwdrivers sysinit \
+    && rc-update add hwclock boot \
+    && rc-update add modules boot \
+    && rc-update add sysctl boot \
+    && rc-update add hostname boot \
+    && rc-update add bootmisc boot \
+    && rc-update add syslog boot \
+    && rc-update add networking boot
 
-WORKDIR /build/busybox
+# Auto root shell on the VGA console (askfirst) and the serial console.
+RUN sed -i 's|^tty1::.*|tty1::askfirst:-/bin/ash|' /etc/inittab \
+    && printf 'ttyS0::respawn:-/bin/ash\n' >> /etc/inittab
 
-# Use a robust config, build, install; create an explicit tarball artifact and verify it
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN set -eux; \
-    mkdir -p /build/initramfs; \
-    # configure (prefer existing .config, accept defaults non-interactively)
-    if [ -f .config ]; then \
-      if ! yes "" | make oldconfig; then \
-        make defconfig; \
-      fi; \
-    else \
-      make defconfig; \
-    fi; \
-    # Force-disable the broken tc applet (oldconfig/defconfig re-enable it)
-    sed -i 's/^CONFIG_TC=.*/CONFIG_TC=n/' .config || true; \
-    sed -i 's/^CONFIG_FEATURE_TC_INGRESS=.*/CONFIG_FEATURE_TC_INGRESS=n/' .config || true; \
-    echo "=== Forced CONFIG_TC ==="; \
-    grep -E 'CONFIG_TC|FEATURE_TC' .config || true; \
-    # build
-    make -j"${BUILD_JOBS:-$(nproc)}"; \
-    # install into explicit path
-    make CONFIG_PREFIX=/build/initramfs install; \
-    # sanity checks — fail early with diagnostics if artifacts missing
-    if [ ! -x /build/initramfs/bin/busybox ]; then \
-      echo "ERROR: busybox install did not produce /build/initramfs/bin/busybox"; \
-      echo "workspace /build contents:"; ls -la /build || true; \
-      echo "busybox tree:"; ls -la /build/initramfs || true; \
-      exit 1; \
-    fi; \
-    # shrink binary if possible (non-fatal)
-    strip --strip-all /build/initramfs/bin/busybox || true; \
-    # create a single tarball artifact for reliable COPY by BuildKit
-    tar -C /build -czf /build/initramfs.tar.gz initramfs; \
-    ls -la /build/initramfs.tar.gz
+# Loopback + DHCP on eth0 (works if the kernel ships the NIC driver)
+RUN printf 'auto lo\niface lo inet loopback\n\nauto eth0\niface eth0 inet dhcp\n' \
+        > /etc/network/interfaces
 
-# -----------------------------------------------------------------------------
-# Stage: initramfs-builder
-# -----------------------------------------------------------------------------
-FROM builder-base AS initramfs-builder
+# Root profile with PATH and useful aliases
+RUN printf 'export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"\nalias ll="ls -lah"\nalias la="ls -A"\nalias l="ls -CF"\n' \
+        > /root/.profile
 
-# Copy the tarball artifact and extract it, then add/overwrite init
-COPY --from=busybox-builder /build/initramfs.tar.gz /build/initramfs.tar.gz
+# Our PID 1 wrapper: mounts the basics, then execs /sbin/init
+COPY init.sh /init
+RUN chmod +x /init
 
+# Pack the entire rootfs into an initramfs (kernel unpacks it into RAM)
 WORKDIR /build
-RUN set -eux; \
-    mkdir -p /build; \
-    tar -C /build -xzf /build/initramfs.tar.gz && rm /build/initramfs.tar.gz; \
-    ls -la /build/initramfs
-
-COPY init.sh /build/initramfs/init
-RUN chmod +x /build/initramfs/init
-
-WORKDIR /build/initramfs
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-RUN find . -print0 | cpio --null --create --format=newc | gzip -9 > /build/initramfs.cpio.gz
+RUN cd / && find . -xdev -print0 | cpio --null --create --format=newc | gzip -9 > /build/initramfs.cpio.gz \
+    && ls -lh /build/initramfs.cpio.gz
 
 # -----------------------------------------------------------------------------
 # Stage: iso-builder
@@ -197,7 +182,7 @@ ARG SYSLINUX_VERSION=6.03
 
 COPY --from=source-downloader /build/sources/syslinux /build/syslinux
 COPY --from=kernel-builder /build/linux/arch/x86/boot/bzImage /build/myiso/bzImage
-COPY --from=initramfs-builder /build/initramfs.cpio.gz /build/myiso/initramfs
+COPY --from=alpine-rootfs-builder /build/initramfs.cpio.gz /build/myiso/initramfs
 
 WORKDIR /build
 RUN mkdir -p /build/myiso/isolinux && \
@@ -225,30 +210,24 @@ FROM scratch AS export-stage
 
 COPY --from=iso-builder /build/output.iso /output.iso
 COPY --from=kernel-builder /build/linux/arch/x86/boot/bzImage /bzImage
-COPY --from=initramfs-builder /build/initramfs.cpio.gz /initramfs
+COPY --from=alpine-rootfs-builder /build/initramfs.cpio.gz /initramfs
 
 # -----------------------------------------------------------------------------
 # Stage: runtime
 # -----------------------------------------------------------------------------
-FROM debian:sid-slim AS runtime
+FROM alpine:latest AS runtime
 
-RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \
-    apt-get update && \
-    apt-get install -yq --no-install-recommends \
-    qemu-system-x86 \
-    qemu-utils && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache qemu-system-x86_64 qemu-img \
+    && rm -rf /var/cache/apk/*
 
-RUN groupadd -r distro && \
-    useradd -r -g distro -d /distro -s /bin/bash distro && \
+RUN addgroup -S distro && \
+    adduser -S -G distro -h /distro -s /bin/sh distro && \
     mkdir -p /distro && \
     chown -R distro:distro /distro
 
 COPY --from=iso-builder /build/output.iso /distro/output.iso
 COPY --from=kernel-builder /build/linux/arch/x86/boot/bzImage /distro/bzImage
-COPY --from=initramfs-builder /build/initramfs.cpio.gz /distro/initramfs
+COPY --from=alpine-rootfs-builder /build/initramfs.cpio.gz /distro/initramfs
 
 COPY --chown=distro:distro build.sh /distro/build.sh
 RUN chmod +x /distro/build.sh
@@ -261,4 +240,4 @@ ENV PATH="${DISTRO_HOME}:${PATH}"
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD [ -f "/distro/output.iso" ] || exit 1
 
-CMD ["/bin/bash"]
+CMD ["/bin/sh"]

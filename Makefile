@@ -3,14 +3,14 @@
 # =============================================================================
 
 .PHONY: all build clean test run extract help docker-build docker-run \
-        docker-clean iso kernel initramfs boot-img qemu qemu-nographic
+        docker-clean docker-build-alpine iso kernel initramfs boot-img qemu qemu-nographic
 
 # Configuration
 IMAGE_NAME := handbuilt-linux
 DOCKER_TAG := latest
 ISO_OUTPUT := output.iso
 BOOT_IMG := boot.img
-QEMU_MEMORY := 512M
+QEMU_MEMORY := 1024M
 
 # Colors for output
 COLOR_RESET := \033[0m
@@ -65,9 +65,9 @@ docker-build-kernel:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building kernel stage...$(COLOR_RESET)"
 	docker build --target kernel-builder -t $(IMAGE_NAME):kernel .
 
-docker-build-busybox:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building BusyBox stage...$(COLOR_RESET)"
-	docker build --target busybox-builder -t $(IMAGE_NAME):busybox .
+docker-build-alpine:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Alpine rootfs stage...$(COLOR_RESET)"
+	docker build --target alpine-rootfs-builder -t $(IMAGE_NAME):alpine .
 
 docker-build-iso:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building ISO stage...$(COLOR_RESET)"
@@ -178,7 +178,7 @@ docker-clean:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Cleaning Docker images...$(COLOR_RESET)"
 	@docker rmi $(IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
 	@docker rmi $(IMAGE_NAME):kernel 2>/dev/null || true
-	@docker rmi $(IMAGE_NAME):busybox 2>/dev/null || true
+	@docker rmi $(IMAGE_NAME):alpine 2>/dev/null || true
 	@docker rmi $(IMAGE_NAME):iso 2>/dev/null || true
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Docker images removed$(COLOR_RESET)"
 
@@ -193,7 +193,7 @@ shell: docker-run
 # Enter build container for debugging
 debug: build
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting debug shell...$(COLOR_RESET)"
-	docker run --rm -it --entrypoint /bin/bash $(IMAGE_NAME):$(DOCKER_TAG)
+	docker run --rm -it --entrypoint /bin/sh $(IMAGE_NAME):$(DOCKER_TAG)
 
 # Show build logs
 logs:
@@ -211,11 +211,6 @@ menuconfig-kernel:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Configuring kernel...$(COLOR_RESET)"
 	docker run --rm -it -v $(PWD):/work $(IMAGE_NAME):$(DOCKER_TAG) bash -c \
 		"cd /opt/mydistro/linux && make menuconfig && cp .config /work/linux.config"
-
-menuconfig-busybox:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Configuring BusyBox...$(COLOR_RESET)"
-	docker run --rm -it -v $(PWD):/work $(IMAGE_NAME):$(DOCKER_TAG) bash -c \
-		"cd /opt/mydistro/busybox && make menuconfig && cp .config /work/busybox.config"
 
 # -----------------------------------------------------------------------------
 # CI/CD
