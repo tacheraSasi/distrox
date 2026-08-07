@@ -3,7 +3,9 @@
 # =============================================================================
 
 .PHONY: all build clean test run extract help docker-build docker-run \
-        docker-clean docker-build-alpine iso kernel initramfs boot-img qemu qemu-nographic
+        docker-clean docker-build-alpine iso kernel initramfs boot-img qemu \
+        qemu-nographic qemu-kernel qemu-network test-qemu clean-all shell debug \
+        logs size menuconfig-kernel ci check-deps
 
 # Configuration
 IMAGE_NAME := handbuilt-linux
@@ -11,6 +13,16 @@ DOCKER_TAG := latest
 ISO_OUTPUT := output.iso
 BOOT_IMG := boot.img
 QEMU_MEMORY := 1024M
+EXTRACT_CONTAINER := handbuilt-extract
+
+# Helper: pull a file out of the image into the working directory
+# Usage: $(call extract_file,/path/in/container,outname)
+define extract_file
+	@docker rm -f $(EXTRACT_CONTAINER) 2>/dev/null || true
+	@docker create --name $(EXTRACT_CONTAINER) $(IMAGE_NAME):$(DOCKER_TAG) > /dev/null
+	@docker cp $(EXTRACT_CONTAINER):$(1) $(2)
+	@docker rm $(EXTRACT_CONTAINER) > /dev/null
+endef
 
 # Colors for output
 COLOR_RESET := \033[0m
@@ -29,25 +41,27 @@ help:
 	@echo "$(COLOR_BOLD)handbuilt-linux Build System$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
-	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)            - Build Docker image"
-	@echo "  $(COLOR_GREEN)extract$(COLOR_RESET)          - Extract build artifacts from Docker"
-	@echo "  $(COLOR_GREEN)iso$(COLOR_RESET)              - Extract ISO image only"
-	@echo "  $(COLOR_GREEN)kernel$(COLOR_RESET)           - Extract kernel image only"
-	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)        - Extract initramfs only"
+	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)            - Build the Docker image (this is the full compile)"
+	@echo "  $(COLOR_GREEN)extract$(COLOR_RESET)          - Copy iso + kernel + initramfs out of the image"
+	@echo "  $(COLOR_GREEN)iso$(COLOR_RESET)              - Copy output.iso only"
+	@echo "  $(COLOR_GREEN)kernel$(COLOR_RESET)           - Copy bzImage only"
+	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)        - Copy initramfs only"
 	@echo "  $(COLOR_GREEN)boot-img$(COLOR_RESET)         - Create bootable disk image"
 	@echo "  $(COLOR_GREEN)run$(COLOR_RESET)              - Run Docker container interactively"
 	@echo "  $(COLOR_GREEN)test$(COLOR_RESET)             - Run tests"
 	@echo "  $(COLOR_GREEN)qemu$(COLOR_RESET)             - Run ISO in QEMU"
 	@echo "  $(COLOR_GREEN)qemu-nographic$(COLOR_RESET)   - Run ISO in QEMU (no graphics)"
+	@echo "  $(COLOR_GREEN)qemu-kernel$(COLOR_RESET)      - Run kernel+initramfs directly in QEMU"
+	@echo "  $(COLOR_GREEN)qemu-network$(COLOR_RESET)     - Run ISO in QEMU with networking"
 	@echo "  $(COLOR_GREEN)clean$(COLOR_RESET)            - Remove build artifacts"
 	@echo "  $(COLOR_GREEN)docker-clean$(COLOR_RESET)     - Remove Docker images and containers"
 	@echo "  $(COLOR_GREEN)help$(COLOR_RESET)             - Show this help message"
 	@echo ""
+	@echo "$(COLOR_BOLD)Note: build is separate from extraction.$(COLOR_RESET)"
 	@echo "$(COLOR_BOLD)Examples:$(COLOR_RESET)"
-	@echo "  make build              # Build the Docker image"
-	@echo "  make extract            # Extract all artifacts"
-	@echo "  make qemu               # Test with QEMU"
-	@echo "  make clean build        # Clean and rebuild"
+	@echo "  make build              # Full build (kernel + rootfs + ISO), slow"
+	@echo "  make iso                # Copy the ISO out of an existing image (fast)"
+	@echo "  make qemu               # Boot current output.iso in QEMU"
 	@echo ""
 
 # -----------------------------------------------------------------------------
@@ -74,24 +88,24 @@ docker-build-iso:
 	docker build --target iso-builder -t $(IMAGE_NAME):iso .
 
 # -----------------------------------------------------------------------------
-# Extract Artifacts
+# Extract Artifacts (copy from an existing image - NO build implied)
 # -----------------------------------------------------------------------------
 extract: iso kernel initramfs
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ All artifacts extracted$(COLOR_RESET)"
 
-iso: build
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Extracting ISO image...$(COLOR_RESET)"
-	@docker run --rm $(IMAGE_NAME):$(DOCKER_TAG) cat /distro/output.iso > $(ISO_OUTPUT)
+iso:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying output.iso from image...$(COLOR_RESET)"
+	$(call extract_file,/distro/output.iso,$(ISO_OUTPUT))
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ ISO extracted: $(ISO_OUTPUT)$(COLOR_RESET)"
 
-kernel: build
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Extracting kernel...$(COLOR_RESET)"
-	@docker run --rm $(IMAGE_NAME):$(DOCKER_TAG) cat /distro/bzImage > bzImage
+kernel:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying bzImage from image...$(COLOR_RESET)"
+	$(call extract_file,/distro/bzImage,bzImage)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Kernel extracted: bzImage$(COLOR_RESET)"
 
-initramfs: build
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Extracting initramfs...$(COLOR_RESET)"
-	@docker run --rm $(IMAGE_NAME):$(DOCKER_TAG) cat /distro/initramfs > initramfs
+initramfs:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying initramfs from image...$(COLOR_RESET)"
+	$(call extract_file,/distro/initramfs,initramfs)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Initramfs extracted: initramfs$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
@@ -107,19 +121,19 @@ boot-img: extract
 # -----------------------------------------------------------------------------
 run: docker-run
 
-docker-run: build
+docker-run:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running Docker container...$(COLOR_RESET)"
 	docker run --rm -it $(IMAGE_NAME):$(DOCKER_TAG)
 
 # Run with mounted volume
-docker-run-mount: build
+docker-run-mount:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running Docker container with mounted volume...$(COLOR_RESET)"
 	docker run --rm -it -v $(PWD)/output:/output $(IMAGE_NAME):$(DOCKER_TAG)
 
 # -----------------------------------------------------------------------------
 # Testing
 # -----------------------------------------------------------------------------
-test: build
+test:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running tests...$(COLOR_RESET)"
 	@if [ -f scripts/test.sh ]; then \
 		./scripts/test.sh; \
@@ -131,19 +145,19 @@ test: build
 test-qemu: qemu-nographic
 
 # -----------------------------------------------------------------------------
-# QEMU
+# QEMU (uses the extracted ISO/artifacts on disk - NO build implied)
 # -----------------------------------------------------------------------------
-qemu: iso
+qemu:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU...$(COLOR_RESET)"
 	@echo "$(COLOR_YELLOW)Press Ctrl+Alt+2 for QEMU console, Ctrl+Alt+1 to return$(COLOR_RESET)"
 	qemu-system-x86_64 -cdrom $(ISO_OUTPUT) -m $(QEMU_MEMORY)
 
-qemu-nographic: iso
+qemu-nographic:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU (no graphics)...$(COLOR_RESET)"
 	@echo "$(COLOR_YELLOW)Press Ctrl+A then X to exit$(COLOR_RESET)"
 	qemu-system-x86_64 -cdrom $(ISO_OUTPUT) -m $(QEMU_MEMORY) -nographic
 
-qemu-kernel: kernel initramfs
+qemu-kernel:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with kernel and initramfs...$(COLOR_RESET)"
 	qemu-system-x86_64 \
 		-kernel bzImage \
@@ -152,12 +166,12 @@ qemu-kernel: kernel initramfs
 		-m $(QEMU_MEMORY) \
 		-nographic
 
-qemu-boot-img: boot-img
+qemu-boot-img:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with boot image...$(COLOR_RESET)"
 	qemu-system-x86_64 $(BOOT_IMG) -m $(QEMU_MEMORY)
 
 # QEMU with network
-qemu-network: iso
+qemu-network:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with network...$(COLOR_RESET)"
 	qemu-system-x86_64 \
 		-cdrom $(ISO_OUTPUT) \
@@ -191,7 +205,7 @@ clean-all: clean docker-clean
 shell: docker-run
 
 # Enter build container for debugging
-debug: build
+debug:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting debug shell...$(COLOR_RESET)"
 	docker run --rm -it --entrypoint /bin/sh $(IMAGE_NAME):$(DOCKER_TAG)
 
@@ -200,7 +214,7 @@ logs:
 	@docker logs $(shell docker ps -lq)
 
 # Show Docker image size
-size: build
+size:
 	@echo "$(COLOR_BOLD)Image sizes:$(COLOR_RESET)"
 	@docker images $(IMAGE_NAME):$(DOCKER_TAG) --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
 

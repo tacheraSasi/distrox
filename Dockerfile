@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     libssl-dev \
     syslinux-common \
     dosfstools \
-    genisoimage \
+    xorriso \
     wget \
     curl \
     ca-certificates \
@@ -103,7 +103,7 @@ COPY --from=source-downloader /build/sources/linux /build/linux
 COPY linux.config /build/linux/.config
 
 WORKDIR /build/linux
-# NOTE: do NOT strip arch/x86/boot/bzImage — it is a raw binary with an
+# NOTE: do NOT strip arch/x86/boot/bzImage it is a raw binary with an
 # embedded EFI stub, and binutils "successfully" rewrites it as a PE file,
 # corrupting the boot sector (breaks the AA55/HdrS kernel header).
 RUN make olddefconfig && \
@@ -115,7 +115,7 @@ RUN make olddefconfig && \
 FROM alpine:latest AS alpine-rootfs-builder
 
 # Install the userspace: base suite, OpenRC, CLI tools, and the dev
-# toolchain we care about (Go + Zig). Keep it text-only — no GUI packages.
+# toolchain we care about (Go + Zig). Keep it text-only no GUI packages.
 RUN apk add --no-cache \
         alpine-base \
         openrc \
@@ -136,6 +136,22 @@ RUN apk add --no-cache \
         openssh-client \
         vim \
         cpio \
+        util-linux \          
+        procps-ng \           
+        iproute2 \            
+        iputils \             
+        net-tools \           
+        shadow \              
+        sudo \
+        less \
+        nano \                
+        tmux \
+        htop \
+        strace \
+        file \
+        which \
+        tar gzip xz bzip2 \
+        ca-certificates
     && rm -rf /var/cache/apk/*
 
 # Enable the standard OpenRC runlevels (sysinit/boot/default).
@@ -192,7 +208,11 @@ RUN mkdir -p /build/myiso/isolinux && \
 COPY syslinux.cfg /build/myiso/isolinux/isolinux.cfg
 
 WORKDIR /build
-RUN mkisofs \
+# genisoimage/mkisofs produces ISOs that ISOLINUX 6.x cannot read ldlinux.c32
+# from (cf. "Failed to load ldlinux.c32"). xorriso is the syslinux-recommended
+# generator and is a drop-in replacement for mkisofs flags.
+RUN xorriso -as mkisofs \
+    -isohybrid-mbr /build/syslinux/bios/mbr/isohdpfx.bin \
     -J \
     -R \
     -o output.iso \
