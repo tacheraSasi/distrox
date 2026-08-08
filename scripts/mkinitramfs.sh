@@ -26,6 +26,10 @@ trap 'rm -rf "$STAGE"' EXIT
 echo "[mkinitramfs] unpacking ${ROOTFS_TAR}"
 tar -xzf "${ROOTFS_TAR}" -C "${STAGE}"
 
+# The rootfs tar omits pseudo-filesystem dirs; recreate them so OpenRC
+# can mount /proc, /sys etc. at boot.
+mkdir -p "${STAGE}/proc" "${STAGE}/sys" "${STAGE}/dev" "${STAGE}/run" "${STAGE}/tmp"
+
 # Alpine installs some setuid helpers (e.g. /bin/bbsuid) execute-only;
 # bsdtar needs read permission to archive them, so grant it in the
 # staging copy (the packed rootfs keeps whatever mode tar stored).
