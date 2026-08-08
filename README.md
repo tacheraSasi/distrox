@@ -1,12 +1,19 @@
-# Handbuilt Linux: Custom Linux Distribution from Scratch
+```markdown
+# Distrox (temporary placeholder name)
 
-A minimal, customizable Linux distribution built from scratch using the Linux kernel, BusyBox, and Syslinux bootloader. This project demonstrates how to build a bootable Linux system with full control over every component.
+A minimal, customizable Linux distribution built from scratch.
+
+**Note:** "Distrox" is only a temporary placeholder name. The final name will be chosen later.
+
+The long-term goal of this project is to completely replace the traditional userspace (BusyBox / Alpine tools) with a custom implementation written in Zig, following the approach of [zig-coreutils](https://github.com/tacheraSasi/zig-coreutils).
+
+Currently the system still uses BusyBox + Alpine packages for practicality while the Zig userspace is being developed.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Docker](https://img.shields.io/badge/docker-ready-brightgreen.svg)](Dockerfile)
 [![Linux](https://img.shields.io/badge/kernel-latest-orange.svg)](https://github.com/torvalds/linux)
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [Prerequisites](#prerequisites)
@@ -20,23 +27,23 @@ A minimal, customizable Linux distribution built from scratch using the Linux ke
 - [Contributing](#contributing)
 - [License](#license)
 
-## ✨ Features
+## Features
 
-- **Minimal footprint**: Only essential components included
-- **From scratch**: Built directly from kernel and BusyBox sources
-- **Multi-stage Docker build**: Optimized build process with caching
-- **Bootable ISO**: Creates a bootable ISO image
-- **Custom init system**: Simple, transparent init process
-- **QEMU ready**: Easy testing with QEMU emulator
-- **Configurable**: Customize kernel and BusyBox configurations
-- **Fast builds**: Parallel compilation with caching
+- Minimal footprint
+- Built from the Linux kernel and a simple initramfs
+- Multi-stage Docker build with caching
+- Bootable ISO
+- Simple and transparent init process
+- Easy testing with QEMU / UTM
+- Configurable kernel
+- Parallel compilation
+- Planned complete replacement of userspace with custom Zig tools (based on [zig-coreutils](https://github.com/tacheraSasi/zig-coreutils))
 
-## 🔧 Prerequisites
+## Prerequisites
 
 ### For Docker Build (Recommended)
 
 - Docker 20.10 or later
-- Docker Compose (optional)
 - 4GB free disk space
 - 2GB RAM minimum
 
@@ -46,40 +53,40 @@ A minimal, customizable Linux distribution built from scratch using the Linux ke
 - Build tools: `gcc`, `make`, `bison`, `flex`
 - Additional packages:
 
-  ```bash
-  sudo apt-get install build-essential libncurses-dev bison flex \
-    libssl-dev libelf-dev bc cpio git wget curl syslinux \
-    dosfstools genisoimage qemu-system-x86
-  ```
+```bash
+sudo apt-get install build-essential libncurses-dev bison flex \
+  libssl-dev libelf-dev bc cpio git wget curl syslinux \
+  dosfstools genisoimage qemu-system-x86
+```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Using Docker (Recommended)
 
-1. **Clone the repository**
+1. Clone the repository
 
-   ```bash
-   git clone https://github.com/ehsanghaffar/handbuilt-linux.git
-   cd handbuilt-linux
-   ```
+```bash
+git clone https://github.com/yourusername/distrox.git
+cd distrox
+```
 
-2. **Build the distribution**
+2. Build the distribution
 
-   ```bash
-   docker build -t handbuilt-linux .
-   ```
+```bash
+docker build -t distrox .
+```
 
-3. **Extract the ISO**
+3. Extract the ISO
 
-   ```bash
-   docker run --rm handbuilt-linux cat /distro/output.iso > output.iso
-   ```
+```bash
+docker run --rm distrox cat /distro/output.iso > output.iso
+```
 
-4. **Test with QEMU**
+4. Test with QEMU
 
-   ```bash
-   qemu-system-x86_64 -cdrom output.iso -m 512M
-   ```
+```bash
+qemu-system-x86_64 -cdrom output.iso -m 512M
+```
 
 ### Using Docker Compose
 
@@ -87,19 +94,17 @@ A minimal, customizable Linux distribution built from scratch using the Linux ke
 docker-compose up --build
 ```
 
-## 🏗️ Building from Source
+## Building from Source
 
 ### Step 1: Build with Docker
 
-The multi-stage Dockerfile handles all build steps:
-
 ```bash
 # Build the complete image
-docker build -t handbuilt-linux .
+docker build -t distrox .
 
 # Or build specific stages
 docker build --target kernel-builder -t linux-kernel .
-docker build --target busybox-builder -t busybox-build .
+docker build --target alpine-rootfs-builder -t rootfs-build .
 docker build --target iso-builder -t linux-iso .
 ```
 
@@ -107,13 +112,13 @@ docker build --target iso-builder -t linux-iso .
 
 ```bash
 # Extract ISO
-docker run --rm handbuilt-linux cat /distro/output.iso > output.iso
+docker run --rm distrox cat /distro/output.iso > output.iso
 
 # Extract kernel
-docker run --rm handbuilt-linux cat /distro/bzImage > bzImage
+docker run --rm distrox cat /distro/bzImage > bzImage
 
 # Extract initramfs
-docker run --rm handbuilt-linux cat /distro/initramfs > initramfs
+docker run --rm distrox cat /distro/initramfs > initramfs
 ```
 
 ### Step 3: Create Bootable USB (Optional)
@@ -124,7 +129,7 @@ sudo dd if=output.iso of=/dev/sdX bs=4M status=progress
 sudo sync
 ```
 
-## 📖 Usage
+## Usage
 
 ### Running with QEMU
 
@@ -155,157 +160,86 @@ qemu-system-x86_64 \
   -device e1000,netdev=net0
 ```
 
-### Building Boot Image
-
-Use the enhanced `build.sh` script to create a bootable disk image:
+### Building a Boot Image
 
 ```bash
-# Basic usage
 ./build.sh
-
-# Custom size
 ./build.sh --size 100
-
-# Custom output name
 ./build.sh --output my-boot.img
-
-# Verbose output
 ./build.sh --verbose
-
-# Show help
 ./build.sh --help
 ```
 
-### Interactive Shell Commands
+## Project Structure
 
-Once booted, you have access to BusyBox utilities:
-
-```bash
-# List all available commands
-busybox --list
-
-# File operations
-ls, cat, cp, mv, rm, mkdir, rmdir, touch
-
-# System utilities
-ps, top, free, df, mount, umount, hostname
-
-# Network utilities
-ifconfig, ping, wget, nc
-
-# Text processing
-grep, sed, awk, sort, uniq, head, tail
-```
-
-## 📁 Project Structure
-
-```bash
-handbuilt-linux/
-├── Dockerfile              # Multi-stage Docker build
-├── docker-compose.yml      # Docker Compose configuration
-├── Makefile               # Build automation
-├── README.md              # This file
-├── LICENSE                # Project license
-├── .gitignore             # Git ignore rules
+```text
+distrox/
+├── Dockerfile
+├── docker-compose.yml
+├── Makefile
+├── README.md
+├── LICENSE
+├── .gitignore
 │
-├── build.sh               # Boot image builder script
-├── init.sh                # Init system script (PID 1)
-├── syslinux.cfg           # Bootloader configuration
+├── build.sh
+├── init.sh
+├── syslinux.cfg
 │
-├── linux.config           # Linux kernel configuration
-├── busybox.config         # BusyBox configuration
+├── linux.config
 │
-├── scripts/               # Helper scripts
-│   ├── test.sh           # Testing script
-│   ├── extract.sh        # Extract artifacts from Docker
-│   └── clean.sh          # Cleanup build artifacts
+├── scripts/
+│   ├── test.sh
+│   ├── extract.sh
+│   └── clean.sh
 │
-├── docs/                  # Additional documentation
-│   ├── BUILDING.md       # Detailed build instructions
-│   ├── CUSTOMIZING.md    # Customization guide
-│   └── TROUBLESHOOTING.md # Common issues and solutions
+├── docs/
+│   ├── BUILDING.md
+│   ├── CUSTOMIZING.md
+│   └── TROUBLESHOOTING.md
 │
 └── .github/
     └── workflows/
-        └── build.yml      # CI/CD pipeline
+        └── build.yml
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Kernel Configuration
 
-To customize the kernel:
-
 ```bash
-# Start configuration menu
-docker run -it --rm -v $(pwd):/work handbuilt-linux bash
-cd /opt/mydistro/linux
+docker run -it --rm -v $(pwd):/work distrox bash
+cd /build/linux
 make menuconfig
-# Save configuration
 cp .config /work/linux.config
-```
-
-### BusyBox Configuration
-
-To customize BusyBox:
-
-```bash
-# Start configuration menu
-docker run -it --rm -v $(pwd):/work handbuilt-linux bash
-cd /opt/mydistro/busybox
-make menuconfig
-# Save configuration
-cp .config /work/busybox.config
 ```
 
 ### Init System
 
-Modify `init.sh` to customize:
-
-- Hostname
-- Mounted filesystems
-- Network configuration
-- Startup services
-- Environment variables
+Edit `init.sh` to customize hostname, mounts, network, and startup behavior.
 
 ### Bootloader
 
-Modify `syslinux.cfg` to customize:
+Edit `syslinux.cfg` to change timeout, kernel parameters, and boot menu options.
 
-- Boot timeout
-- Kernel parameters
-- Boot menu options
-- Default boot entry
+## Userspace Direction
 
-## 🔥 Advanced Usage
+The current system still relies on BusyBox and Alpine packages for a usable environment.
 
-### Custom Packages
+The explicit goal of this project is to **completely replace** the traditional userspace with a custom Zig implementation.
 
-Add custom software to the initramfs:
+The reference implementation being followed is:
 
-```dockerfile
-# In Dockerfile, add after BusyBox installation:
-RUN cd /build/initramfs && \
-    wget https://example.com/package.tar.gz && \
-    tar xzf package.tar.gz && \
-    rm package.tar.gz
-```
+- https://github.com/tacheraSasi/zig-coreutils
 
-### Multi-Architecture Support
+Over time, core utilities (`ls`, `cat`, `cp`, `mv`, `rm`, `echo`, `mkdir`, etc.) will be rewritten in pure Zig and the BusyBox/Alpine userspace will be removed.
 
-Build for different architectures:
+## Advanced Usage
 
-```bash
-# ARM64
-docker build --build-arg ARCH=arm64 -t handbuilt-linux-arm64 .
+### Adding Custom Binaries
 
-# ARM
-docker build --build-arg ARCH=arm -t handbuilt-linux-arm .
-```
+You can drop static Zig or Go binaries into the rootfs during the build.
 
 ### Persistent Storage
-
-Mount a persistent volume:
 
 ```bash
 qemu-system-x86_64 \
@@ -314,99 +248,53 @@ qemu-system-x86_64 \
   -drive file=data.img,format=raw
 ```
 
-### Network Boot (PXE)
+## Troubleshooting
 
-Extract kernel and initramfs for network booting:
-
-```bash
-# Extract files
-docker run --rm handbuilt-linux cat /distro/bzImage > /tftpboot/bzImage
-docker run --rm handbuilt-linux cat /distro/initramfs > /tftpboot/initramfs
-
-# Configure PXE
-cat > /tftpboot/pxelinux.cfg/default << EOF
-DEFAULT linux
-LABEL linux
-    KERNEL bzImage
-    APPEND initrd=initramfs
-EOF
-```
-
-## 🐛 Troubleshooting
-
-### Common Issues
-
-**Build fails with "out of space" error:**
+**Build fails with "out of space":**
 
 ```bash
-# Increase Docker disk space or clean up
 docker system prune -a
+docker builder prune -f
 ```
 
 **QEMU shows black screen:**
 
 ```bash
-# Use serial console
 qemu-system-x86_64 -cdrom output.iso -nographic
 ```
 
 **Kernel panic on boot:**
 
 ```bash
-# Check initramfs was created correctly
 file initramfs
-# Should show: "gzip compressed data"
+# Should show gzip compressed data
 ```
 
-**Permission denied when mounting:**
-
-```bash
-# Run build.sh with sudo
-sudo ./build.sh
-```
-
-### Debug Mode
-
-Enable verbose logging:
-
-```bash
-# Build script
-./build.sh --verbose
-
-# QEMU with debug output
-qemu-system-x86_64 -cdrom output.iso -d guest_errors,cpu_reset
-```
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+## Contributing
 
 1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
+2. Create your feature branch (`git checkout -b feature/your-feature`)
+3. Commit your changes
+4. Push to the branch
 5. Open a Pull Request
 
-## 📄 License
+## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
-- [Linux Kernel](https://kernel.org/) - The core of the operating system
-- [BusyBox](https://busybox.net/) - The Swiss Army Knife of Embedded Linux
-- [Syslinux](https://www.syslinux.org/) - Lightweight bootloader
-- [QEMU](https://www.qemu.org/) - Emulator for testing
+- [Linux Kernel](https://kernel.org/)
+- [BusyBox](https://busybox.net/)
+- [Syslinux](https://www.syslinux.org/)
+- [Alpine Linux](https://alpinelinux.org/)
+- [zig-coreutils](https://github.com/tacheraSasi/zig-coreutils)
+- [QEMU](https://www.qemu.org/)
 
-## 📚 Resources
+## Resources
 
 - [Linux From Scratch](http://www.linuxfromscratch.org/)
 - [Kernel Build Documentation](https://www.kernel.org/doc/html/latest/kbuild/index.html)
 - [BusyBox Documentation](https://busybox.net/docs/)
 - [Syslinux Wiki](https://wiki.syslinux.org/)
-
-## 📞 Support
-
-- Create an issue for bug reports
-- Start a discussion for questions
-- Check existing issues before creating new ones
+```
