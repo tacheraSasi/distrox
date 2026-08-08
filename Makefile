@@ -12,7 +12,7 @@ IMAGE_NAME := handbuilt-linux
 DOCKER_TAG := latest
 ISO_OUTPUT := output.iso
 BOOT_IMG := boot.img
-QEMU_MEMORY := 1024M
+QEMU_MEMORY := 2048M
 EXTRACT_CONTAINER := handbuilt-extract
 
 # Helper: pull a file out of the image into the working directory
