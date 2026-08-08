@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: CC0-1.0
+// SPDX-FileCopyrightText: 2025 Lee Cannon <leecannon@leecannon.xyz>
+
+.{
+    .name = .coreutils,
+
+    .version = "0.3.0",
+
+    .minimum_zig_version = "0.15.1",
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+
+    .fingerprint = 0x3bcfe8c5bc4f06d3,
+}
