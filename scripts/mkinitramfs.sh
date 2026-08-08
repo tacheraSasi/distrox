@@ -26,6 +26,11 @@ trap 'rm -rf "$STAGE"' EXIT
 echo "[mkinitramfs] unpacking ${ROOTFS_TAR}"
 tar -xzf "${ROOTFS_TAR}" -C "${STAGE}"
 
+# Alpine installs some setuid helpers (e.g. /bin/bbsuid) execute-only;
+# bsdtar needs read permission to archive them, so grant it in the
+# staging copy (the packed rootfs keeps whatever mode tar stored).
+find "${STAGE}" -type f ! -perm -u+r -exec chmod u+r {} +
+
 if [[ -d "${ZIG_BIN_DIR}" ]] && compgen -G "${ZIG_BIN_DIR}/*" > /dev/null; then
     echo "[mkinitramfs] injecting Zig binaries from ${ZIG_BIN_DIR}"
     mkdir -p "${STAGE}/usr/local/bin"
