@@ -1,38 +1,47 @@
 # =============================================================================
-# Makefile for Custom Linux Distribution
+# Makefile for handbuilt-linux
+#
+# The pipeline is split into heavy Docker stages (kernel, rootfs) and
+# fast local steps (userspace, initramfs, iso):
+#
+#   make kernel   # Docker: compile bzImage                    (~20 min once)
+#   make rootfs   # Docker: slim Alpine rootfs -> rootfs.tar.gz (~2 min once)
+#   make userspace# Local:  zig build x86_64-linux-musl bins   (seconds)
+#   make initramfs# Local:  rootfs.tar + zig bins -> initramfs (seconds)
+#   make iso      # Local:  bzImage + initramfs -> output.iso  (seconds)
+#   make build    # everything above
+#   make qemu     # boot output.iso
 # =============================================================================
 
-.PHONY: all build clean test run extract help docker-build docker-run \
-        docker-clean docker-build-alpine iso kernel initramfs boot-img qemu \
-        qemu-nographic qemu-kernel qemu-network test-qemu clean-all shell debug \
-        logs size menuconfig-kernel ci check-deps
+.PHONY: help build kernel rootfs userspace initramfs syslinux iso \
+        qemu qemu-nographic qemu-network clean check-deps
 
+# -----------------------------------------------------------------------------
 # Configuration
-IMAGE_NAME := handbuilt-linux
-DOCKER_TAG := latest
-ISO_OUTPUT := output.iso
-BOOT_IMG := boot.img
-QEMU_MEMORY := 2048M
-EXTRACT_CONTAINER := handbuilt-extract
+# -----------------------------------------------------------------------------
+IMAGE_NAME    := handbuilt-linux
+DOCKER_TAG    := latest
+QEMU_MEMORY   := 2048M
+SYSLINUX_VER  := 6.03
 
-# Helper: pull a file out of the image into the working directory
-# Usage: $(call extract_file,/path/in/container,outname)
-define extract_file
-	@docker rm -f $(EXTRACT_CONTAINER) 2>/dev/null || true
-	@docker create --name $(EXTRACT_CONTAINER) $(IMAGE_NAME):$(DOCKER_TAG) > /dev/null
-	@docker cp $(EXTRACT_CONTAINER):$(1) $(2)
-	@docker rm $(EXTRACT_CONTAINER) > /dev/null
-endef
+# Local artifacts
+BUILD_DIR     := build
+BZIMAGE       := $(BUILD_DIR)/bzImage
+ROOTFS_TAR    := $(BUILD_DIR)/rootfs.tar.gz
+INITRAMFS     := $(BUILD_DIR)/initramfs
+ISO_OUTPUT    := $(BUILD_DIR)/output.iso
+ISOFILES_DIR  := $(BUILD_DIR)/isofiles
+SYSLINUX_DIR  := $(BUILD_DIR)/syslinux
+ZIG_OUT       := userspace/zig-out/bin
 
-# Colors for output
-COLOR_RESET := \033[0m
-COLOR_BOLD := \033[1m
-COLOR_GREEN := \033[32m
-COLOR_BLUE := \033[34m
+XORRISO       := $(shell command -v xorriso 2>/dev/null)
+
+# Colors
+COLOR_RESET  := \033[0m
+COLOR_BOLD   := \033[1m
+COLOR_GREEN  := \033[32m
+COLOR_BLUE   := \033[34m
 COLOR_YELLOW := \033[33m
-
-# Default target
-all: help
 
 # -----------------------------------------------------------------------------
 # Help
@@ -40,201 +49,152 @@ all: help
 help:
 	@echo "$(COLOR_BOLD)handbuilt-linux Build System$(COLOR_RESET)"
 	@echo ""
-	@echo "$(COLOR_BOLD)Available targets:$(COLOR_RESET)"
-	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)            - Build the Docker image (this is the full compile)"
-	@echo "  $(COLOR_GREEN)extract$(COLOR_RESET)          - Copy iso + kernel + initramfs out of the image"
-	@echo "  $(COLOR_GREEN)iso$(COLOR_RESET)              - Copy output.iso only"
-	@echo "  $(COLOR_GREEN)kernel$(COLOR_RESET)           - Copy bzImage only"
-	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)        - Copy initramfs only"
-	@echo "  $(COLOR_GREEN)boot-img$(COLOR_RESET)         - Create bootable disk image"
-	@echo "  $(COLOR_GREEN)run$(COLOR_RESET)              - Run Docker container interactively"
-	@echo "  $(COLOR_GREEN)test$(COLOR_RESET)             - Run tests"
-	@echo "  $(COLOR_GREEN)qemu$(COLOR_RESET)             - Run ISO in QEMU"
-	@echo "  $(COLOR_GREEN)qemu-nographic$(COLOR_RESET)   - Run ISO in QEMU (no graphics)"
-	@echo "  $(COLOR_GREEN)qemu-kernel$(COLOR_RESET)      - Run kernel+initramfs directly in QEMU"
-	@echo "  $(COLOR_GREEN)qemu-network$(COLOR_RESET)     - Run ISO in QEMU with networking"
-	@echo "  $(COLOR_GREEN)clean$(COLOR_RESET)            - Remove build artifacts"
-	@echo "  $(COLOR_GREEN)docker-clean$(COLOR_RESET)     - Remove Docker images and containers"
-	@echo "  $(COLOR_GREEN)help$(COLOR_RESET)             - Show this help message"
+	@echo "$(COLOR_BOLD)Targets:$(COLOR_RESET)"
+	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)      - Full build: kernel+rootfs+userspace+initramfs+iso"
+	@echo "  $(COLOR_GREEN)kernel$(COLOR_RESET)      - Build bzImage via Docker"
+	@echo "  $(COLOR_GREEN)rootfs$(COLOR_RESET)      - Build Alpine rootfs.tar.gz via Docker"
+	@echo "  $(COLOR_GREEN)userspace$(COLOR_RESET)   - Compile Zig userspace (x86_64-linux-musl)"
+	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)   - Pack rootfs + Zig bins into initramfs"
+	@echo "  $(COLOR_GREEN)iso$(COLOR_RESET)         - Assemble output.iso locally"
+	@echo "  $(COLOR_GREEN)qemu$(COLOR_RESET)        - Boot ISO in QEMU (GUI)"
+	@echo "  $(COLOR_GREEN)qemu-nographic$(COLOR_RESET) - Boot ISO in QEMU (serial console)"
+	@echo "  $(COLOR_GREEN)qemu-network$(COLOR_RESET)   - Boot ISO with user-mode networking"
+	@echo "  $(COLOR_GREEN)clean$(COLOR_RESET)       - Remove build artifacts"
+	@echo "  $(COLOR_GREEN)check-deps$(COLOR_RESET)  - Verify local tooling"
 	@echo ""
-	@echo "$(COLOR_BOLD)Note: build is separate from extraction.$(COLOR_RESET)"
 	@echo "$(COLOR_BOLD)Examples:$(COLOR_RESET)"
-	@echo "  make build              # Full build (kernel + rootfs + ISO), slow"
-	@echo "  make iso                # Copy the ISO out of an existing image (fast)"
-	@echo "  make qemu               # Boot current output.iso in QEMU"
-	@echo ""
+	@echo "  make build && make qemu-nographic   # everything + boot"
 
 # -----------------------------------------------------------------------------
-# Docker Build
+# Full build
 # -----------------------------------------------------------------------------
-build: docker-build
-
-docker-build:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Docker image...$(COLOR_RESET)"
-	docker build -t $(IMAGE_NAME):$(DOCKER_TAG) .
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Docker image built successfully$(COLOR_RESET)"
-
-# Build specific stages
-docker-build-kernel:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building kernel stage...$(COLOR_RESET)"
-	docker build --target kernel-builder -t $(IMAGE_NAME):kernel .
-
-docker-build-alpine:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Alpine rootfs stage...$(COLOR_RESET)"
-	docker build --target alpine-rootfs-builder -t $(IMAGE_NAME):alpine .
-
-docker-build-iso:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building ISO stage...$(COLOR_RESET)"
-	docker build --target iso-builder -t $(IMAGE_NAME):iso .
+build: kernel rootfs userspace initramfs iso
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Build complete: $(ISO_OUTPUT)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
-# Extract Artifacts (copy from an existing image - NO build implied)
+# Kernel (Docker)
 # -----------------------------------------------------------------------------
-extract: iso kernel initramfs
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ All artifacts extracted$(COLOR_RESET)"
-
-iso:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying output.iso from image...$(COLOR_RESET)"
-	$(call extract_file,/distro/output.iso,$(ISO_OUTPUT))
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ ISO extracted: $(ISO_OUTPUT)$(COLOR_RESET)"
-
 kernel:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying bzImage from image...$(COLOR_RESET)"
-	$(call extract_file,/distro/bzImage,bzImage)
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Kernel extracted: bzImage$(COLOR_RESET)"
-
-initramfs:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Copying initramfs from image...$(COLOR_RESET)"
-	$(call extract_file,/distro/initramfs,initramfs)
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Initramfs extracted: initramfs$(COLOR_RESET)"
-
-# -----------------------------------------------------------------------------
-# Boot Image
-# -----------------------------------------------------------------------------
-boot-img: extract
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Creating bootable disk image...$(COLOR_RESET)"
-	@./build.sh
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Boot image created: $(BOOT_IMG)$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building kernel...$(COLOR_RESET)"
+	@mkdir -p $(BUILD_DIR)
+	docker build --target kernel-builder -t $(IMAGE_NAME):kernel .
+	@docker create --name hbl-kernel $(IMAGE_NAME):kernel > /dev/null
+	@docker cp hbl-kernel:/build/linux/arch/x86/boot/bzImage $(BZIMAGE)
+	@docker rm hbl-kernel > /dev/null
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Kernel: $(BZIMAGE)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
-# Docker Run
+# Rootfs (Docker)
 # -----------------------------------------------------------------------------
-run: docker-run
-
-docker-run:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running Docker container...$(COLOR_RESET)"
-	docker run --rm -it $(IMAGE_NAME):$(DOCKER_TAG)
-
-# Run with mounted volume
-docker-run-mount:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running Docker container with mounted volume...$(COLOR_RESET)"
-	docker run --rm -it -v $(PWD)/output:/output $(IMAGE_NAME):$(DOCKER_TAG)
+rootfs:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Alpine rootfs...$(COLOR_RESET)"
+	@mkdir -p $(BUILD_DIR)
+	docker build --target rootfs-builder -t $(IMAGE_NAME):$(DOCKER_TAG) .
+	@docker rm -f hbl-rootfs 2>/dev/null || true
+	@docker create --name hbl-rootfs $(IMAGE_NAME):$(DOCKER_TAG) > /dev/null
+	@docker cp hbl-rootfs:/build/rootfs.tar.gz $(ROOTFS_TAR)
+	@docker rm hbl-rootfs > /dev/null
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Rootfs: $(ROOTFS_TAR)$(COLOR_RESET)"
+	@ls -lh $(ROOTFS_TAR)
 
 # -----------------------------------------------------------------------------
-# Testing
+# Zig userspace (local)
 # -----------------------------------------------------------------------------
-test:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Running tests...$(COLOR_RESET)"
-	@if [ -f scripts/test.sh ]; then \
-		./scripts/test.sh; \
+userspace:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Zig userspace...$(COLOR_RESET)"
+	@if command -v zig >/dev/null 2>&1; then \
+		cd userspace && zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast; \
 	else \
-		echo "$(COLOR_YELLOW)No test script found$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)! zig not found - skipping userspace (binaries from $(ZIG_OUT) still get packed if present)$(COLOR_RESET)"; \
 	fi
-
-# Test with QEMU
-test-qemu: qemu-nographic
+	@ls -la $(ZIG_OUT) 2>/dev/null || echo "$(COLOR_YELLOW)! no binaries in $(ZIG_OUT)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
-# QEMU (uses the extracted ISO/artifacts on disk - NO build implied)
+# Initramfs (local)
+# -----------------------------------------------------------------------------
+initramfs: rootfs userspace
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Packing initramfs...$(COLOR_RESET)"
+	@mkdir -p $(BUILD_DIR)
+	@bash scripts/mkinitramfs.sh $(ROOTFS_TAR) $(ZIG_OUT) $(INITRAMFS)
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Initramfs: $(INITRAMFS)$(COLOR_RESET)"
+	@ls -lh $(INITRAMFS)
+
+# -----------------------------------------------------------------------------
+# Syslinux (local, downloaded once)
+# -----------------------------------------------------------------------------
+$(SYSLINUX_DIR)/isolinux.bin:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Downloading syslinux $(SYSLINUX_VER)...$(COLOR_RESET)"
+	@mkdir -p $(SYSLINUX_DIR)
+	@curl -fsSL -o /tmp/syslinux-$(SYSLINUX_VER).tar.gz \
+		https://mirrors.edge.kernel.org/pub/linux/utils/boot/syslinux/syslinux-$(SYSLINUX_VER).tar.gz
+	@tar xzf /tmp/syslinux-$(SYSLINUX_VER).tar.gz -C /tmp
+	@cp /tmp/syslinux-$(SYSLINUX_VER)/bios/core/isolinux.bin \
+		/tmp/syslinux-$(SYSLINUX_VER)/bios/com32/elflink/ldlinux/ldlinux.c32 \
+		/tmp/syslinux-$(SYSLINUX_VER)/bios/mbr/isohdpfx.bin \
+		$(SYSLINUX_DIR)/
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Syslinux files in $(SYSLINUX_DIR)$(COLOR_RESET)"
+
+# -----------------------------------------------------------------------------
+# ISO (local)
+# -----------------------------------------------------------------------------
+iso: $(SYSLINUX_DIR)/isolinux.bin
+	@test "$(XORRISO)" != "" || { echo "$(COLOR_RED)✗ xorriso not found — brew install xorriso$(COLOR_RESET)"; exit 1; }
+	@test -f $(BZIMAGE) || { echo "$(COLOR_RED)✗ $(BZIMAGE) missing — run: make kernel$(COLOR_RESET)"; exit 1; }
+	@test -f "$(INITRAMFS)" || { echo "$(COLOR_RED)✗ $(INITRAMFS) missing — run: make initramfs$(COLOR_RESET)"; exit 1; }
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Assembling ISO...$(COLOR_RESET)"
+	@rm -rf $(ISOFILES_DIR) && mkdir -p $(ISOFILES_DIR)/isolinux
+	@cp $(BZIMAGE) $(ISOFILES_DIR)/bzImage
+	@cp $(INITRAMFS) $(ISOFILES_DIR)/initramfs
+	@cp syslinux.cfg $(ISOFILES_DIR)/isolinux/isolinux.cfg
+	@cp $(SYSLINUX_DIR)/isolinux.bin $(SYSLINUX_DIR)/ldlinux.c32 $(ISOFILES_DIR)/isolinux/
+	@xorriso -as mkisofs \
+		-isohybrid-mbr $(SYSLINUX_DIR)/isohdpfx.bin \
+		-J -R \
+		-o $(ISO_OUTPUT) \
+		-b isolinux/isolinux.bin \
+		-c isolinux/boot.cat \
+		-no-emul-boot \
+		-boot-load-size 4 \
+		-boot-info-table \
+		$(ISOFILES_DIR)
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ ISO: $(ISO_OUTPUT)$(COLOR_RESET)"
+	@ls -lh $(ISO_OUTPUT)
+
+# -----------------------------------------------------------------------------
+# QEMU
 # -----------------------------------------------------------------------------
 qemu:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU...$(COLOR_RESET)"
+	@test -f $(ISO_OUTPUT) || { echo "$(COLOR_RED)✗ ISO missing — run: make iso$(COLOR_RESET)"; exit 1; }
 	@echo "$(COLOR_YELLOW)Press Ctrl+Alt+2 for QEMU console, Ctrl+Alt+1 to return$(COLOR_RESET)"
 	qemu-system-x86_64 -cdrom $(ISO_OUTPUT) -m $(QEMU_MEMORY)
 
 qemu-nographic:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU (no graphics)...$(COLOR_RESET)"
+	@test -f $(ISO_OUTPUT) || { echo "$(COLOR_RED)✗ ISO missing — run: make iso$(COLOR_RESET)"; exit 1; }
 	@echo "$(COLOR_YELLOW)Press Ctrl+A then X to exit$(COLOR_RESET)"
 	qemu-system-x86_64 -cdrom $(ISO_OUTPUT) -m $(QEMU_MEMORY) -nographic
 
-qemu-kernel:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with kernel and initramfs...$(COLOR_RESET)"
-	qemu-system-x86_64 \
-		-kernel bzImage \
-		-initrd initramfs \
-		-append "console=ttyS0" \
-		-m $(QEMU_MEMORY) \
-		-nographic
-
-qemu-boot-img:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with boot image...$(COLOR_RESET)"
-	qemu-system-x86_64 $(BOOT_IMG) -m $(QEMU_MEMORY)
-
-# QEMU with network
 qemu-network:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting QEMU with network...$(COLOR_RESET)"
+	@test -f $(ISO_OUTPUT) || { echo "$(COLOR_RED)✗ ISO missing — run: make iso$(COLOR_RESET)"; exit 1; }
+	@echo "$(COLOR_YELLOW)Press Ctrl+A then X to exit$(COLOR_RESET)"
 	qemu-system-x86_64 \
 		-cdrom $(ISO_OUTPUT) \
 		-m $(QEMU_MEMORY) \
 		-netdev user,id=net0 \
-		-device e1000,netdev=net0
+		-device e1000,netdev=net0 \
+		-nographic
 
 # -----------------------------------------------------------------------------
-# Cleanup
+# Cleanup / deps
 # -----------------------------------------------------------------------------
 clean:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Cleaning build artifacts...$(COLOR_RESET)"
-	@rm -f $(ISO_OUTPUT) $(BOOT_IMG) bzImage initramfs initramfs.cpio.gz
-	@rm -rf mnt/ myiso/ initramfs/ build/ output/
+	@rm -rf $(BUILD_DIR)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Cleaned$(COLOR_RESET)"
 
-docker-clean:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Cleaning Docker images...$(COLOR_RESET)"
-	@docker rmi $(IMAGE_NAME):$(DOCKER_TAG) 2>/dev/null || true
-	@docker rmi $(IMAGE_NAME):kernel 2>/dev/null || true
-	@docker rmi $(IMAGE_NAME):alpine 2>/dev/null || true
-	@docker rmi $(IMAGE_NAME):iso 2>/dev/null || true
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Docker images removed$(COLOR_RESET)"
-
-clean-all: clean docker-clean
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Full cleanup complete$(COLOR_RESET)"
-
-# -----------------------------------------------------------------------------
-# Development
-# -----------------------------------------------------------------------------
-shell: docker-run
-
-# Enter build container for debugging
-debug:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Starting debug shell...$(COLOR_RESET)"
-	docker run --rm -it --entrypoint /bin/sh $(IMAGE_NAME):$(DOCKER_TAG)
-
-# Show build logs
-logs:
-	@docker logs $(shell docker ps -lq)
-
-# Show Docker image size
-size:
-	@echo "$(COLOR_BOLD)Image sizes:$(COLOR_RESET)"
-	@docker images $(IMAGE_NAME):$(DOCKER_TAG) --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}"
-
-# -----------------------------------------------------------------------------
-# Configuration
-# -----------------------------------------------------------------------------
-menuconfig-kernel:
-	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Configuring kernel...$(COLOR_RESET)"
-	docker run --rm -it -v $(PWD):/work $(IMAGE_NAME):$(DOCKER_TAG) bash -c \
-		"cd /opt/mydistro/linux && make menuconfig && cp .config /work/linux.config"
-
-# -----------------------------------------------------------------------------
-# CI/CD
-# -----------------------------------------------------------------------------
-ci: clean build test
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ CI build complete$(COLOR_RESET)"
-
-# Check for required tools
 check-deps:
 	@echo "$(COLOR_BOLD)Checking dependencies...$(COLOR_RESET)"
 	@command -v docker >/dev/null 2>&1 || { echo "$(COLOR_RED)✗ docker not found$(COLOR_RESET)"; exit 1; }
 	@command -v qemu-system-x86_64 >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! qemu-system-x86_64 not found (optional)$(COLOR_RESET)"
-	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ All required dependencies found$(COLOR_RESET)"
+	@command -v xorriso >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! xorriso not found — brew install xorriso$(COLOR_RESET)"
+	@command -v zig >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! zig not found (needed for make userspace)$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Done$(COLOR_RESET)"

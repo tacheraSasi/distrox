@@ -1,11 +1,12 @@
 # Quick Start Guide
 
-Get up and running with handbuilt-linux in 5 minutes!
+Get up and running with handbuilt-linux!
 
 ## Prerequisites
 
-- Docker installed and running
-- 4GB free disk space
+- Docker (for the kernel + rootfs compiles)
+- `xorriso` for ISO assembly (`brew install xorriso`)
+- `zig` for building the userspace (`brew install zig` or zvm)
 - (Optional) QEMU for testing
 
 ## Three Simple Steps
@@ -13,152 +14,84 @@ Get up and running with handbuilt-linux in 5 minutes!
 ### 1. Build
 
 ```bash
-# Clone the repository (if not already)
-git clone https://github.com/yourusername/handbuilt-linux.git
 cd handbuilt-linux
 
-# Build using Make (recommended)
+# Full build: kernel + rootfs + userspace + initramfs + ISO
 make build
-
-# Or build with Docker directly
-docker build -t handbuilt-linux .
 ```
 
-**Build time**: 20-30 minutes (first build), 5-10 minutes (cached)
+**Build time**: 20-30 minutes (first build, kernel compile), then cached. After
+the first build, `make userspace initramfs iso qemu` iterates in seconds.
 
-### 2. Extract
+### 2. Rebuild individual pieces
 
 ```bash
-# Extract ISO image
-make iso
-
-# Or extract all artifacts
-make extract
+make kernel      # Docker: compile bzImage
+make rootfs      # Docker: Alpine rootfs.tar.gz
+make userspace   # zig: compile Zig userland locally
+make initramfs   # local: pack rootfs + Zig bins
+make iso         # local: assemble output.iso with xorriso
 ```
 
 ### 3. Run
 
 ```bash
-# Test with QEMU
-make qemu
-
-# Or run manually
-qemu-system-x86_64 -cdrom output.iso -m 512M
+make qemu              # QEMU with GUI
+make qemu-nographic    # QEMU serial console (Ctrl+A X to exit)
 ```
+
+## Customizing the userland
+
+Zig sources live in `userspace/`. `make userspace` cross-compiles them to
+`x86_64-linux-musl` static binaryes; `make initramfs` copies everything from
+`userspace/zig-out/bin/` into `/usr/local/bin/` of the rootfs.
 
 ## Common Commands
 
 ```bash
-# Full build and test
-make build test
-
-# Extract and run
-make extract qemu-nographic
-
-# Clean and rebuild
-make clean build
-
-# Enter development shell
-make shell
-
-# Show all available commands
-make help
-```
-
-## Docker Compose (Alternative)
-
-```bash
-# Build and extract artifacts
-docker-compose up builder
-
-# Interactive development
-docker-compose run dev
-
-# Test with QEMU
-docker-compose --profile test up qemu
-```
-
-## Next Steps
-
-- **Customize kernel**: Edit `linux.config` and rebuild
-- **Customize BusyBox**: Edit `busybox.config` and rebuild
-- **Modify init**: Edit `init.sh` to customize boot process
-- **Read the docs**: Check `docs/` for detailed information
-
-## Troubleshooting
-
-**Build fails?**
-
-```bash
-make clean-all
-docker system prune -f
-make build
-```
-
-**Permission denied?**
-
-```bash
-sudo make build
-# Or add your user to docker group
-sudo usermod -aG docker $USER
-```
-
-**QEMU not found?**
-
-```bash
-# macOS
-brew install qemu
-
-# Ubuntu/Debian
-sudo apt-get install qemu-system-x86
-
-# Or use Docker for testing
-docker run --privileged -v $(pwd):/images tianon/qemu \
-    qemu-system-x86_64 -cdrom /images/output.iso -nographic
+make build             # full chain
+make clean             # wipe build/
+make check-deps        # verify local tooling
+make help              # all targets
 ```
 
 ## What's Included
 
-- **Linux Kernel**: Latest from Linus Torvalds
-- **BusyBox**: Swiss Army Knife of embedded Linux
-- **Syslinux**: Lightweight bootloader
-- **Custom Init**: Simple, transparent init system
+- **Linux Kernel**: latest from Linus Torvalds (config in `linux.config`)
+- **Alpine userspace + OpenRC** as the base system
+- **Zig userland** (in `userspace/`) injected into the initramfs
+- **Syslinux 6.03**: bootloader (isolinux.bin + ldlinux.c32, downloaded once)
+
+## Troubleshooting
+
+**ISO misses kernel/initramfs?**
+
+```bash
+rm -rf build && make build
+```
+
+**"xorriso not found"?** `brew install xorriso`
+
+**QEMU not found?**
+
+```bash
+brew install qemu
+```
+
+**Rootfs bloat?** Reduce the `apk add` list in the `rootfs-builder` stage of
+`Dockerfile`. Dev tools are intentionally excluded — install them inside the
+guest with `apk add` after boot.
 
 ## File Locations
 
 ```bash
-output.iso      # Bootable ISO image
-bzImage         # Linux kernel
-initramfs       # Initial RAM filesystem
-boot.img        # Bootable disk image (after build.sh)
+build/bzImage         # Linux kernel
+build/rootfs.tar.gz   # Rootfs produced by Docker (base userspace)
+build/initramfs       # Final initramfs (rootfs + Zig bins)
+build/output.iso      # Bootable ISO image
 ```
-
-## Quick Demo
-
-```bash
-# One-liner: Build and run
-make build extract qemu-nographic
-
-# Inside the system, try:
-busybox --list    # List all available commands
-cat /proc/cpuinfo # View CPU information
-free              # Check memory usage
-ps                # List processes
-```
-
-## Tips
-
-1. **First build is slow** - Subsequent builds use cache
-2. **Use make** - Easier than raw Docker commands
-3. **Read the README** - Comprehensive documentation available
-4. **Check the Makefile** - See all available commands
 
 ## Resources
 
 - Full documentation: [README.md](README.md)
 - Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Contributing: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
-
----
-
-**Need help?** Open an issue on GitHub!

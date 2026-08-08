@@ -17,6 +17,9 @@ dist/
 output/
 artifacts/
 
+# Zig userland (built locally, not needed in Docker)
+userspace/
+
 # Git
 .git/
 .gitignore

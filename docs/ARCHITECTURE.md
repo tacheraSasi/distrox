@@ -36,23 +36,26 @@ This document describes the architecture and design decisions of the handbuilt-l
 
 #### Dockerfile
 
-Multi-stage build with 8 distinct stages:
+Multi-stage build with 2 stages:
 
-1. **builder-base**: Base image with build dependencies
-2. **source-downloader**: Downloads and caches sources
-3. **kernel-builder**: Compiles Linux kernel
-4. **busybox-builder**: Compiles BusyBox
-5. **initramfs-builder**: Creates initramfs archive
-6. **iso-builder**: Assembles bootable ISO
-7. **export-stage**: Exports build artifacts
-8. **runtime**: Final minimal runtime image
+1. **kernel-builder** (debian): Compiles Linux kernel -> `bzImage`
+2. **rootfs-builder** (alpine): Installs Alpine base + OpenRC, configures
+   runlevels/console/network -> `rootfs.tar.gz`
+
+Everything else happens locally on the host via the Makefile:
+
+- `scripts/mkinitramfs.sh` — unpacks `rootfs.tar.gz`, injects Zig binaries
+  from `userspace/zig-out/bin/` into `/usr/local/bin`, repacks as a newc
+  cpio.gz initramfs
+- `make iso` — assembles the ISOLINUX bootable ISO with `xorriso -as mkisofs`
 
 #### Benefits
 
 - **Layer caching**: Faster rebuilds
-- **Parallel builds**: Independent stages can build concurrently
-- **Size optimization**: Final image only contains necessary artifacts
-- **Security**: Non-root user, minimal attack surface
+- **Split build**: kernel/rootfs compiles in Docker; initramfs/ISO assembly
+  and Zig userland builds are local and take seconds
+- **Small rootfs**: dev toolchains are excluded from the image and can be
+  installed later in the guest with `apk add'
 
 ### 2. Linux Kernel
 
@@ -70,29 +73,25 @@ Multi-stage build with 8 distinct stages:
 ```bash
 make olddefconfig
 make -j$(nproc)
-strip --strip-debug arch/x86/boot/bzImage
 ```
 
-**Output**: `bzImage` (~5-10MB)
+NOTE: `bzImage` must NOT be stripped — it is a raw binary with an embedded
+EFI stub, and binutils rewrites it as a PE file, corrupting the boot sector.
 
-### 3. BusyBox (Userspace)
+**Output**: `bzImage` (~15MB)
 
-**Source**: git.busybox.net/busybox (latest)
+### 3. Alpine Userspace
 
-**Configuration**: `busybox.config`
+**Source**: Alpine Linux packages (`apk add alpine-base openrc ...`)
 
-- Essential utilities only
-- Static linking
-- Minimal size
+**Configuration**: `apk add` list in the Dockerfile `rootfs-builder` stage
 
-**Provides**:
+- `alpine-base` (BusyBox-shell, core tools)
+- OpenRC init system
+- bash, coreutils, findutils, grep, sed, gawk, curl, wget, openssh-client
+- No toolchain, no git, no GUI — install inside the guest later with `apk add`
 
-- Shell (sh)
-- Core utilities (ls, cp, mv, etc.)
-- System utilities (mount, ps, top, etc.)
-- Network utilities (ifconfig, ping, wget, etc.)
-
-**Output**: Single static binary (~1-2MB)
+**Output**: `rootfs.tar.gz` (~40MB), packed into the initramfs
 
 ### 4. Init System
 
