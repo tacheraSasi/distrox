@@ -1,4 +1,3 @@
-```markdown
 # Distrox (temporary placeholder name)
 
 A minimal, customizable Linux distribution built from scratch.
