@@ -18,4 +18,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Docker build support
 - ISO image generation
 
-[1.0.0]: https://github.com/yourusername/handbuilt-linux/releases/tag/v1.0.0
+[1.0.0]: https://github.com/yourusername/distrox/releases/tag/v1.0.0

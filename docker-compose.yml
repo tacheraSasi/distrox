@@ -12,8 +12,8 @@ services:
       args:
         - LINUX_VERSION=master
         - BUILD_JOBS=auto
-    image: handbuilt-linux:latest
-    container_name: handbuilt-linux-builder
+    image: distrox:latest
+    container_name: distrox-builder
     volumes:
       # Mount output directory for extracting artifacts
       - ./build:/output
@@ -26,7 +26,7 @@ services:
         echo 'Rootfs: ./build/rootfs.tar.gz'
       "
     networks:
-      - handbuilt-linux-net
+      - distrox-net
 
   # =============================================================================
   # Development service - Interactive shell inside the rootfs
@@ -36,18 +36,18 @@ services:
       context: .
       dockerfile: Dockerfile
       target: rootfs-builder
-    image: handbuilt-linux:latest
-    container_name: handbuilt-linux-dev
+    image: distrox:latest
+    container_name: distrox-dev
     stdin_open: true
     tty: true
     volumes:
       - ./scripts:/scripts:ro
     environment:
-      - PS1=\[\033[1;32m\]handbuilt-linux-dev\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$
+      - PS1=\[\033[1;32m\]distrox-dev\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$
     working_dir: /
     command: /bin/sh
     networks:
-      - handbuilt-linux-net
+      - distrox-net
     profiles:
       - dev
 
@@ -55,6 +55,6 @@ services:
 # Networks
 # =============================================================================
 networks:
-  handbuilt-linux-net:
+  distrox-net:
     driver: bridge
-    name: handbuilt-linux-network
+    name: distrox-network

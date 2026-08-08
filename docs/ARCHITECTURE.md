@@ -1,6 +1,6 @@
 # Architecture Overview
 
-This document describes the architecture and design decisions of the handbuilt-linux project.
+This document describes the architecture and design decisions of the distrox project.
 
 ## System Architecture
 

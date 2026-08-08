@@ -48,7 +48,7 @@ log_warning() {
 
 test_docker_image_exists() {
     log_info "Testing if Docker image exists..."
-    if docker image inspect handbuilt-linux:latest &> /dev/null; then
+    if docker image inspect distrox:latest &> /dev/null; then
         log_success "Docker image exists"
         return 0
     else
@@ -59,7 +59,7 @@ test_docker_image_exists() {
 
 test_iso_exists() {
     log_info "Testing if ISO can be extracted..."
-    if docker run --rm handbuilt-linux:latest test -f /distro/output.iso; then
+    if docker run --rm distrox:latest test -f /distro/output.iso; then
         log_success "ISO exists in Docker image"
         return 0
     else
@@ -70,7 +70,7 @@ test_iso_exists() {
 
 test_kernel_exists() {
     log_info "Testing if kernel can be extracted..."
-    if docker run --rm handbuilt-linux:latest test -f /distro/bzImage; then
+    if docker run --rm distrox:latest test -f /distro/bzImage; then
         log_success "Kernel exists in Docker image"
         return 0
     else
@@ -81,7 +81,7 @@ test_kernel_exists() {
 
 test_initramfs_exists() {
     log_info "Testing if initramfs can be extracted..."
-    if docker run --rm handbuilt-linux:latest test -f /distro/initramfs; then
+    if docker run --rm distrox:latest test -f /distro/initramfs; then
         log_success "Initramfs exists in Docker image"
         return 0
     else
@@ -96,7 +96,7 @@ test_iso_is_valid() {
 
     if [[ ! -f "${iso_file}" ]]; then
         log_warning "ISO not extracted yet, extracting..."
-        docker run --rm handbuilt-linux:latest cat /distro/output.iso > "${iso_file}"
+        docker run --rm distrox:latest cat /distro/output.iso > "${iso_file}"
     fi
 
     if file "${iso_file}" | grep -q "ISO 9660"; then
@@ -114,7 +114,7 @@ test_initramfs_is_valid() {
 
     if [[ ! -f "${initramfs_file}" ]]; then
         log_warning "Initramfs not extracted yet, extracting..."
-        docker run --rm handbuilt-linux:latest cat /distro/initramfs > "${initramfs_file}"
+        docker run --rm distrox:latest cat /distro/initramfs > "${initramfs_file}"
     fi
 
     if file "${initramfs_file}" | grep -q "gzip compressed"; then
@@ -181,7 +181,7 @@ test_qemu_available() {
 
 main() {
     echo "========================================"
-    echo "  handbuilt-linux Test Suite"
+    echo "  distrox Test Suite"
     echo "========================================"
     echo ""
 

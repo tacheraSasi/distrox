@@ -1,6 +1,6 @@
 # Customization Guide
 
-This guide shows you how to customize various aspects of the handbuilt-linux distribution.
+This guide shows you how to customize various aspects of the distrox distribution.
 
 ## Table of Contents
 
@@ -20,7 +20,7 @@ The easiest way to customize the kernel:
 
 ```bash
 # Start kernel configuration menu
-docker run -it --rm -v $(pwd):/work handbuilt-linux bash -c \
+docker run -it --rm -v $(pwd):/work distrox bash -c \
     "cd /opt/mydistro/linux && make menuconfig && cp .config /work/linux.config"
 
 # Rebuild with new configuration
@@ -80,7 +80,7 @@ CONFIG_FEATURE_NAME=m
 
 ```bash
 # Start BusyBox configuration menu
-docker run -it --rm -v $(pwd):/work handbuilt-linux bash -c \
+docker run -it --rm -v $(pwd):/work distrox bash -c \
     "cd /opt/mydistro/busybox && make menuconfig && cp .config /work/busybox.config"
 
 # Rebuild
@@ -178,7 +178,7 @@ Customize environment in `init.sh`:
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 export HOME="/root"
 export USER="root"
-export HOSTNAME="handbuilt-linux"
+export HOSTNAME="distrox"
 export TERM="linux"
 export PS1='\[\033[1;32m\]\u@\h\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$ '
 ```
@@ -421,7 +421,7 @@ Create `/etc/motd`:
 RUN cat > /build/initramfs/etc/motd << 'EOF'
 ╔═══════════════════════════════════════╗
 ║   Welcome to Custom Linux System      ║
-║   Built with handbuilt-linux               ║
+║   Built with distrox               ║
 ╚═══════════════════════════════════════╝
 
 For help: busybox --help
@@ -457,18 +457,18 @@ For rapid testing of init script changes:
 # Extract current initramfs
 mkdir -p /tmp/initramfs
 cd /tmp/initramfs
-gunzip -c ~/workspace/handbuilt-linux/initramfs | cpio -idmv
+gunzip -c ~/workspace/distrox/initramfs | cpio -idmv
 
 # Modify init script
 nano init
 
 # Rebuild initramfs
-find . | cpio -H newc -o | gzip -9 > ~/workspace/handbuilt-linux/initramfs
+find . | cpio -H newc -o | gzip -9 > ~/workspace/distrox/initramfs
 
 # Test immediately
 qemu-system-x86_64 \
-    -kernel ~/workspace/handbuilt-linux/bzImage \
-    -initrd ~/workspace/handbuilt-linux/initramfs \
+    -kernel ~/workspace/distrox/bzImage \
+    -initrd ~/workspace/distrox/initramfs \
     -nographic
 ```
 

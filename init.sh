@@ -1,13 +1,13 @@
 #!/bin/sh
 
 # =============================================================================
-# Init Script for handbuilt-linux (Alpine)
+# Init Script for distrox (Alpine)
 # =============================================================================
 # This is PID 1. It mounts the essential pseudo-filesystems, then hands
 # control over to Alpine's init (/sbin/init = BusyBox init + OpenRC).
 # =============================================================================
 
-HOSTNAME="handbuilt-linux"
+HOSTNAME="distrox"
 
 # Mount essential filesystems before OpenRC takes over
 /bin/mount -t proc proc /proc 2>/dev/null || true

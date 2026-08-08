@@ -6,7 +6,7 @@
 
 set -euo pipefail
 
-readonly IMAGE_NAME="${1:-handbuilt-linux:latest}"
+readonly IMAGE_NAME="${1:-distrox:latest}"
 readonly OUTPUT_DIR="${2:-./output}"
 
 readonly GREEN='\033[0;32m'

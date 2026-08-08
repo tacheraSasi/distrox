@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  IMAGE_NAME: handbuilt-linux
+  IMAGE_NAME: distrox
 
 jobs:
   # ===========================================================================
@@ -57,12 +57,12 @@ jobs:
       - name: Extract artifacts
         run: |
           mkdir -p artifacts
-          docker create --name hbl-kernel ${{ env.IMAGE_NAME }}:kernel
-          docker cp hbl-kernel:/build/linux/arch/x86/boot/bzImage artifacts/bzImage
-          docker rm hbl-kernel
-          docker create --name hbl-rootfs ${{ env.IMAGE_NAME }}:rootfs
-          docker cp hbl-rootfs:/build/rootfs.tar.gz artifacts/rootfs.tar.gz
-          docker rm hbl-rootfs
+          docker create --name distrox-kernel ${{ env.IMAGE_NAME }}:kernel
+          docker cp distrox-kernel:/build/linux/arch/x86/boot/bzImage artifacts/bzImage
+          docker rm distrox-kernel
+          docker create --name distrox-rootfs ${{ env.IMAGE_NAME }}:rootfs
+          docker cp distrox-rootfs:/build/rootfs.tar.gz artifacts/rootfs.tar.gz
+          docker rm distrox-rootfs
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

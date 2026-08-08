@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get up and running with handbuilt-linux!
+Get up and running with distrox!
 
 ## Prerequisites
 
@@ -14,7 +14,7 @@ Get up and running with handbuilt-linux!
 ### 1. Build
 
 ```bash
-cd handbuilt-linux
+cd distrox
 
 # Full build: kernel + rootfs + userspace + initramfs + ISO
 make build

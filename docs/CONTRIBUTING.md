@@ -1,6 +1,6 @@
-# Contributing to handbuilt-linux
+# Contributing to distrox
 
-Thank you for considering contributing to handbuilt-linux! This document provides guidelines and instructions for contributing.
+Thank you for considering contributing to distrox! This document provides guidelines and instructions for contributing.
 
 ## Code of Conduct
 
@@ -61,8 +61,8 @@ sudo apt-get install qemu-system-x86  # Ubuntu
 
 ```bash
 # Clone your fork
-git clone https://github.com/yourusername/handbuilt-linux.git
-cd handbuilt-linux
+git clone https://github.com/yourusername/distrox.git
+cd distrox
 
 # Build the project
 make build

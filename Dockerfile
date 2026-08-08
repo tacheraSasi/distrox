@@ -19,7 +19,7 @@ ARG LINUX_VERSION=master
 ARG DEBIAN_FRONTEND=noninteractive
 ARG BUILD_JOBS=
 
-LABEL maintainer="handbuilt-linux-project"
+LABEL maintainer="distrox-project"
 LABEL description="Custom Linux distribution kernel builder"
 LABEL version="2.0.0"
 

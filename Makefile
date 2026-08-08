@@ -1,5 +1,5 @@
 # =============================================================================
-# Makefile for handbuilt-linux
+# Makefile for distrox
 #
 # The pipeline is split into heavy Docker stages (kernel, rootfs) and
 # fast local steps (userspace, initramfs, iso):
@@ -19,7 +19,7 @@
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-IMAGE_NAME    := handbuilt-linux
+IMAGE_NAME    := distrox
 DOCKER_TAG    := latest
 QEMU_MEMORY   := 2048M
 SYSLINUX_VER  := 6.03
@@ -47,7 +47,7 @@ COLOR_YELLOW := \033[33m
 # Help
 # -----------------------------------------------------------------------------
 help:
-	@echo "$(COLOR_BOLD)handbuilt-linux Build System$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)distrox Build System$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Targets:$(COLOR_RESET)"
 	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)      - Full build: kernel+rootfs+userspace+initramfs+iso"
@@ -78,9 +78,9 @@ kernel:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building kernel...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
 	docker build --target kernel-builder -t $(IMAGE_NAME):kernel .
-	@docker create --name hbl-kernel $(IMAGE_NAME):kernel > /dev/null
-	@docker cp hbl-kernel:/build/linux/arch/x86/boot/bzImage $(BZIMAGE)
-	@docker rm hbl-kernel > /dev/null
+	@docker create --name distrox-kernel $(IMAGE_NAME):kernel > /dev/null
+	@docker cp distrox-kernel:/build/linux/arch/x86/boot/bzImage $(BZIMAGE)
+	@docker rm distrox-kernel > /dev/null
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Kernel: $(BZIMAGE)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
@@ -90,10 +90,10 @@ rootfs:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Alpine rootfs...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
 	docker build --target rootfs-builder -t $(IMAGE_NAME):$(DOCKER_TAG) .
-	@docker rm -f hbl-rootfs 2>/dev/null || true
-	@docker create --name hbl-rootfs $(IMAGE_NAME):$(DOCKER_TAG) > /dev/null
-	@docker cp hbl-rootfs:/build/rootfs.tar.gz $(ROOTFS_TAR)
-	@docker rm hbl-rootfs > /dev/null
+	@docker rm -f distrox-rootfs 2>/dev/null || true
+	@docker create --name distrox-rootfs $(IMAGE_NAME):$(DOCKER_TAG) > /dev/null
+	@docker cp distrox-rootfs:/build/rootfs.tar.gz $(ROOTFS_TAR)
+	@docker rm distrox-rootfs > /dev/null
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Rootfs: $(ROOTFS_TAR)$(COLOR_RESET)"
 	@ls -lh $(ROOTFS_TAR)
 
