@@ -13,12 +13,19 @@ pub fn build(b: *std.Build) !void {
         "Generate test coverage for the native test target with kcov",
     ) orelse false;
 
+    const trace = b.option(
+        bool,
+        "trace",
+        "Enable allocation tracing",
+    ) orelse false;
+
     const options = b.addOptions();
     options.addOption(
         []const u8,
         "version",
         try getVersionString(b, coreutils_version, b.build_root.path.?),
     );
+    options.addOption(bool, "trace", trace);
     const options_module = options.createModule();
 
     // exe
