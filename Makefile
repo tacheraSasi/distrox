@@ -33,10 +33,11 @@ INITRAMFS     := $(BUILD_DIR)/initramfs
 ISO_OUTPUT    := $(BUILD_DIR)/output.iso
 ISOFILES_DIR  := $(BUILD_DIR)/isofiles
 SYSLINUX_DIR  := $(BUILD_DIR)/syslinux
+ZIG           := anyzig
 ZIG_OUT       := userspace/zig-out/bin
 INIT_BIN      := init/zig-out/bin/init
-ZIG_0151      := /Users/mac/.zvm/0.15.1/zig
-ZIG_0160      := /Users/mac/.zvm/0.16.0/zig
+ZIG_USPACE    := 0.15.1
+ZIG_INIT      := 0.16.0
 
 XORRISO       := $(shell command -v xorriso 2>/dev/null)
 
@@ -107,11 +108,7 @@ rootfs:
 # -----------------------------------------------------------------------------
 userspace:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Zig userspace...$(COLOR_RESET)"
-	@if command -v $(ZIG_0151) >/dev/null 2>&1; then \
-		cd userspace && $(ZIG_0151) build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast; \
-	else \
-		echo "$(COLOR_YELLOW)! $(ZIG_0151) not found - skipping userspace (binaries from $(ZIG_OUT) still get packed if present)$(COLOR_RESET)"; \
-	fi
+	cd userspace && $(ZIG) $(ZIG_USPACE) build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast
 	@ls -la $(ZIG_OUT) 2>/dev/null || echo "$(COLOR_YELLOW)! no binaries in $(ZIG_OUT)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
@@ -119,11 +116,7 @@ userspace:
 # -----------------------------------------------------------------------------
 init:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Zig init...$(COLOR_RESET)"
-	@if command -v $(ZIG_0160) >/dev/null 2>&1; then \
-		cd init && $(ZIG_0160) build --release=small -Dtarget=x86_64-linux-musl; \
-	else \
-		echo "$(COLOR_YELLOW)! $(ZIG_0160) not found$(COLOR_RESET)"; exit 1; \
-	fi
+	cd init && $(ZIG) $(ZIG_INIT) build --release=small -Dtarget=x86_64-linux-musl
 	@ls -lh $(INIT_BIN) 2>/dev/null || echo "$(COLOR_YELLOW)! init binary not found$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
@@ -213,7 +206,5 @@ check-deps:
 	@command -v docker >/dev/null 2>&1 || { echo "$(COLOR_RED)✗ docker not found$(COLOR_RESET)"; exit 1; }
 	@command -v qemu-system-x86_64 >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! qemu-system-x86_64 not found (optional)$(COLOR_RESET)"
 	@command -v xorriso >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! xorriso not found — brew install xorriso$(COLOR_RESET)"
-	@command -v zig >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! zig not found (needed for make userspace)$(COLOR_RESET)"
-	@command -v $(ZIG_0151) >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! $(ZIG_0151) not found (userspace)$(COLOR_RESET)"
-	@command -v $(ZIG_0160) >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! $(ZIG_0160) not found (init)$(COLOR_RESET)"
+	@command -v $(ZIG) >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! anyzig not found — install anyzig first$(COLOR_RESET)"
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Done$(COLOR_RESET)"
