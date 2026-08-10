@@ -4,6 +4,7 @@
 
 const std = @import("std");
 const linux = std.os.linux;
+const c = @cImport(@cInclude("stdlib.h"));
 
 const Service = struct {
     tty: [:0]const u8,
@@ -51,6 +52,9 @@ pub fn main() u8 {
     const host = "distrox";
     _ = linux.syscall2(.sethostname, @intFromPtr(host.ptr), host.len);
 
+    _ = c.setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    _ = c.setenv("HOME", "/root", 1);
+
     for (services) |svc| spawn(svc);
 
     while (true) _ = linux.pause();
@@ -88,7 +92,6 @@ fn spawn(svc: Service) void {
 
     const fd = linux.openat(linux.AT.FDCWD, svc.tty, linux.O{
         .ACCMODE = .RDWR,
-        .NOCTTY = true,
     }, 0);
     if (fd <= 0x7FFFFFFF) {
         _ = linux.dup3(@intCast(fd), 0, 0);
