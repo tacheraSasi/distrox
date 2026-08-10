@@ -7,13 +7,14 @@
 #   make kernel   # Docker: compile bzImage                    (~20 min once)
 #   make rootfs   # Docker: slim Alpine rootfs -> rootfs.tar.gz (~2 min once)
 #   make userspace# Local:  zig build x86_64-linux-musl bins   (seconds)
-#   make initramfs# Local:  rootfs.tar + zig bins -> initramfs (seconds)
+#   make init     # Local:  zig build x86_64-linux-musl PID 1  (seconds)
+#   make initramfs# Local:  rootfs.tar + zig bins + init -> cpio (seconds)
 #   make iso      # Local:  bzImage + initramfs -> output.iso  (seconds)
 #   make build    # everything above
 #   make qemu     # boot output.iso
 # =============================================================================
 
-.PHONY: help build kernel rootfs userspace initramfs syslinux iso \
+.PHONY: help build kernel rootfs userspace init initramfs syslinux iso \
         qemu qemu-nographic qemu-network clean check-deps
 
 # -----------------------------------------------------------------------------
@@ -33,6 +34,9 @@ ISO_OUTPUT    := $(BUILD_DIR)/output.iso
 ISOFILES_DIR  := $(BUILD_DIR)/isofiles
 SYSLINUX_DIR  := $(BUILD_DIR)/syslinux
 ZIG_OUT       := userspace/zig-out/bin
+INIT_BIN      := init/zig-out/bin/init
+ZIG_0151      := /Users/mac/.zvm/0.15.1/zig
+ZIG_0160      := /Users/mac/.zvm/0.16.0/zig
 
 XORRISO       := $(shell command -v xorriso 2>/dev/null)
 
@@ -50,11 +54,12 @@ help:
 	@echo "$(COLOR_BOLD)distrox Build System$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Targets:$(COLOR_RESET)"
-	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)      - Full build: kernel+rootfs+userspace+initramfs+iso"
+	@echo "  $(COLOR_GREEN)build$(COLOR_RESET)      - Full build: kernel+rootfs+userspace+init+initramfs+iso"
 	@echo "  $(COLOR_GREEN)kernel$(COLOR_RESET)      - Build bzImage via Docker"
 	@echo "  $(COLOR_GREEN)rootfs$(COLOR_RESET)      - Build Alpine rootfs.tar.gz via Docker"
 	@echo "  $(COLOR_GREEN)userspace$(COLOR_RESET)   - Compile Zig userspace (x86_64-linux-musl)"
-	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)   - Pack rootfs + Zig bins into initramfs"
+	@echo "  $(COLOR_GREEN)init$(COLOR_RESET)         - Compile Zig PID 1 init (x86_64-linux-musl)"
+	@echo "  $(COLOR_GREEN)initramfs$(COLOR_RESET)   - Pack rootfs + Zig bins + init into initramfs"
 	@echo "  $(COLOR_GREEN)iso$(COLOR_RESET)         - Assemble output.iso locally"
 	@echo "  $(COLOR_GREEN)qemu$(COLOR_RESET)        - Boot ISO in QEMU (GUI)"
 	@echo "  $(COLOR_GREEN)qemu-nographic$(COLOR_RESET) - Boot ISO in QEMU (serial console)"
@@ -68,7 +73,7 @@ help:
 # -----------------------------------------------------------------------------
 # Full build
 # -----------------------------------------------------------------------------
-build: kernel rootfs userspace initramfs iso
+build: kernel rootfs userspace init initramfs iso
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Build complete: $(ISO_OUTPUT)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
@@ -102,20 +107,32 @@ rootfs:
 # -----------------------------------------------------------------------------
 userspace:
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Zig userspace...$(COLOR_RESET)"
-	@if command -v zig >/dev/null 2>&1; then \
-		cd userspace && zig build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast; \
+	@if command -v $(ZIG_0151) >/dev/null 2>&1; then \
+		cd userspace && $(ZIG_0151) build -Dtarget=x86_64-linux-musl -Doptimize=ReleaseFast; \
 	else \
-		echo "$(COLOR_YELLOW)! zig not found - skipping userspace (binaries from $(ZIG_OUT) still get packed if present)$(COLOR_RESET)"; \
+		echo "$(COLOR_YELLOW)! $(ZIG_0151) not found - skipping userspace (binaries from $(ZIG_OUT) still get packed if present)$(COLOR_RESET)"; \
 	fi
 	@ls -la $(ZIG_OUT) 2>/dev/null || echo "$(COLOR_YELLOW)! no binaries in $(ZIG_OUT)$(COLOR_RESET)"
 
 # -----------------------------------------------------------------------------
+# Zig init PID 1 (local)
+# -----------------------------------------------------------------------------
+init:
+	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Building Zig init...$(COLOR_RESET)"
+	@if command -v $(ZIG_0160) >/dev/null 2>&1; then \
+		cd init && $(ZIG_0160) build --release=small -Dtarget=x86_64-linux-musl; \
+	else \
+		echo "$(COLOR_YELLOW)! $(ZIG_0160) not found$(COLOR_RESET)"; exit 1; \
+	fi
+	@ls -lh $(INIT_BIN) 2>/dev/null || echo "$(COLOR_YELLOW)! init binary not found$(COLOR_RESET)"
+
+# -----------------------------------------------------------------------------
 # Initramfs (local)
 # -----------------------------------------------------------------------------
-initramfs: rootfs userspace
+initramfs: rootfs userspace init
 	@echo "$(COLOR_BOLD)$(COLOR_BLUE)Packing initramfs...$(COLOR_RESET)"
 	@mkdir -p $(BUILD_DIR)
-	@bash scripts/mkinitramfs.sh $(ROOTFS_TAR) $(ZIG_OUT) $(INITRAMFS)
+	@bash scripts/mkinitramfs.sh $(ROOTFS_TAR) $(ZIG_OUT) $(INITRAMFS) $(INIT_BIN)
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Initramfs: $(INITRAMFS)$(COLOR_RESET)"
 	@ls -lh $(INITRAMFS)
 
@@ -197,4 +214,6 @@ check-deps:
 	@command -v qemu-system-x86_64 >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! qemu-system-x86_64 not found (optional)$(COLOR_RESET)"
 	@command -v xorriso >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! xorriso not found — brew install xorriso$(COLOR_RESET)"
 	@command -v zig >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! zig not found (needed for make userspace)$(COLOR_RESET)"
+	@command -v $(ZIG_0151) >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! $(ZIG_0151) not found (userspace)$(COLOR_RESET)"
+	@command -v $(ZIG_0160) >/dev/null 2>&1 || echo "$(COLOR_YELLOW)! $(ZIG_0160) not found (init)$(COLOR_RESET)"
 	@echo "$(COLOR_BOLD)$(COLOR_GREEN)✓ Done$(COLOR_RESET)"

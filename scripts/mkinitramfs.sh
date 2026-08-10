@@ -3,13 +3,14 @@
 # mkinitramfs.sh Pack the Alpine rootfs + Zig userland into an initramfs
 #
 # Usage:
-#   ./scripts/mkinitramfs.sh <rootfs.tar.gz> <zig-out-bin-dir> <output>
+#   ./scripts/mkinitramfs.sh <rootfs.tar.gz> <zig-out-bin-dir> <output> [zig-init]
 #
 # Steps:
 #   1. Unpack the rootfs tarball into a staging dir
 #   2. Copy any locally-built Zig binaries into /usr/local/bin
 #   3. Generate /etc/profile.d/zig-coreutils.sh aliases for the Zig commands
-#   4. Repack the whole tree as a newc cpio archive, gzip compressed
+#   4. If [zig-init] is provided, replace /init with the Zig PID 1 binary
+#   5. Repack the whole tree as a newc cpio archive, gzip compressed
 #
 # Uses bsdtar for the newc archive (works on macOS and Linux; the kernel
 # accepts newc without padding issues).
@@ -23,9 +24,10 @@
 
 set -euo pipefail
 
-ROOTFS_TAR="${1:?usage: mkinitramfs.sh <rootfs.tar.gz> <zig-bin-dir> <output>}"
+ROOTFS_TAR="${1:?usage: mkinitramfs.sh <rootfs.tar.gz> <zig-bin-dir> <output> [init-bin]}"
 ZIG_BIN_DIR="${2:-}"
-OUTPUT="${3:?usage: mkinitramfs.sh <rootfs.tar.gz> <zig-bin-dir> <output>}"
+OUTPUT="${3:?usage: mkinitramfs.sh <rootfs.tar.gz> <zig-bin-dir> <output> [init-bin]}"
+ZIG_INIT="${4:-}"
 
 ZIG_BIN=zig-coreutils
 # Commands enabled on Linux, see userspace/src/commands/listing.zig
@@ -64,6 +66,12 @@ if [[ -d "${ZIG_BIN_DIR}" ]] && compgen -G "${ZIG_BIN_DIR}/*" > /dev/null; then
     fi
 elif [[ -n "${ZIG_BIN_DIR}" ]]; then
     echo "[mkinitramfs] note: no binaries in ${ZIG_BIN_DIR} (zig build not run?)"
+fi
+
+if [[ -n "${ZIG_INIT}" && -x "${ZIG_INIT}" ]]; then
+    echo "[mkinitramfs] replacing /init with Zig PID 1 (${ZIG_INIT})"
+    cp "${ZIG_INIT}" "${STAGE}/init"
+    chmod +x "${STAGE}/init"
 fi
 
 echo "[mkinitramfs] packing ${OUTPUT}"
