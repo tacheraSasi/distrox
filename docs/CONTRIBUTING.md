@@ -51,11 +51,16 @@ Enhancement suggestions are tracked as GitHub issues. When suggesting an enhance
 ### Prerequisites
 
 ```bash
-# Install Docker
-# Install QEMU (optional, for testing)
-brew install qemu  # macOS
-sudo apt-get install qemu-system-x86  # Ubuntu
+# Docker (kernel + rootfs compiles)
+# xorriso + libarchive/bsdtar (initramfs + ISO steps)
+# anyzig (Zig userspace + init builds)
+# QEMU (optional, for testing)
+brew install xorriso libarchive qemu  # macOS
+sudo apt-get install xorriso libarchive-tools qemu-system-x86  # Ubuntu
+# anyzig: https://github.com/sno2/anyzig
 ```
+
+Verify with `make check-deps`.
 
 ### Local Development
 
@@ -67,11 +72,11 @@ cd distrox
 # Build the project
 make build
 
-# Run tests
-make test
+# Sanity-check the build artifacts
+./scripts/test.sh
 
 # Test with QEMU
-make qemu
+make qemu-nographic
 ```
 
 ## Code Style
@@ -84,6 +89,12 @@ make qemu
 - Add function documentation
 - Use meaningful variable names
 - Quote variables: `"${var}"`
+
+### Zig
+
+- Follow the style used in `userspace/` and `init/`
+- Keep `userspace/src/commands/listing.zig` and the `ZIG_COMMANDS`
+  environment list in `scripts/mkinitramfs.sh` in sync
 
 ### Dockerfile
 
@@ -99,16 +110,16 @@ make qemu
 ### Running Tests
 
 ```bash
-# Full test suite
-make test
-
-# Individual tests
+# Sanity checks on build artifacts
 ./scripts/test.sh
 
-# Docker build test
+# Dependency check
+make check-deps
+
+# Full build (the real integration test)
 make build
 
-# QEMU test
+# QEMU boot test
 make qemu-nographic
 ```
 
@@ -156,7 +167,9 @@ Explain the problem this commit solves and why you chose this solution.
 1. Update version numbers
 2. Update CHANGELOG.md
 3. Create release tag
-4. GitHub Actions will build and publish
+
+CI/CD is not set up yet — a future GitHub Actions workflow should build via
+`make build` and publish `build/output.iso` as a release artifact.
 
 ## Questions?
 

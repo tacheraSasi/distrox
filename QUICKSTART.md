@@ -5,9 +5,13 @@ Get up and running with distrox!
 ## Prerequisites
 
 - Docker (for the kernel + rootfs compiles)
-- `xorriso` for ISO assembly (`brew install xorriso`)
-- `zig` for building the userspace (`brew install zig` or zvm)
+- `anyzig` for building the userspace and init (pins Zig 0.15.1 / 0.16.0)
+- `xorriso` for ISO assembly (`brew install xorriso` / `sudo apt install xorriso`)
+- `bsdtar` from libarchive for initramfs packing
+  (`brew install libarchive` / `sudo apt install libarchive-tools`)
 - (Optional) QEMU for testing
+
+Verify with `make check-deps`.
 
 ## Three Simple Steps
 
@@ -28,8 +32,9 @@ the first build, `make userspace initramfs iso qemu` iterates in seconds.
 ```bash
 make kernel      # Docker: compile bzImage
 make rootfs      # Docker: Alpine rootfs.tar.gz
-make userspace   # zig: compile Zig userland locally
-make initramfs   # local: pack rootfs + Zig bins
+make userspace   # zig: compile Zig coreutils locally
+make init        # zig: compile the Zig PID 1 init locally
+make initramfs   # local: pack rootfs + Zig bins + init
 make iso         # local: assemble output.iso with xorriso
 ```
 
@@ -42,9 +47,12 @@ make qemu-nographic    # QEMU serial console (Ctrl+A X to exit)
 
 ## Customizing the userland
 
-Zig sources live in `userspace/`. `make userspace` cross-compiles them to
-`x86_64-linux-musl` static binaryes; `make initramfs` copies everything from
-`userspace/zig-out/bin/` into `/usr/local/bin/` of the rootfs.
+Zig sources live in `userspace/` (coreutils) and `init/` (PID 1). `make
+userspace` cross-compiles them to `x86_64-linux-musl` static binaries; `make
+initramfs` copies everything from `userspace/zig-out/bin/` into
+`/usr/local/bin/` of the rootfs and installs `init/zig-out/bin/init` as
+`/init`. If the Zig init binary is missing, the shell fallback from
+`init.sh` is used instead.
 
 ## Common Commands
 
@@ -58,9 +66,12 @@ make help              # all targets
 ## What's Included
 
 - **Linux Kernel**: latest from Linus Torvalds (config in `linux.config`)
-- **Alpine userspace + OpenRC** as the base system
-- **Zig userland** (in `userspace/`) injected into the initramfs
-- **Syslinux 6.03**: bootloader (isolinux.bin + ldlinux.c32, downloaded once)
+- **Alpine userspace + OpenRC** as the base system (BusyBox stays the default
+  for scripts)
+- **Zig userland** (in `userspace/`) + **Zig PID 1** (in `init/`) injected into
+  the initramfs
+- **Syslinux 6.03**: bootloader (isolinux.bin + ldlinux.c32, downloaded once
+  into `build/syslinux/`)
 
 ## Troubleshooting
 
@@ -71,6 +82,13 @@ rm -rf build && make build
 ```
 
 **"xorriso not found"?** `brew install xorriso`
+
+**"bsdtar not found"?** `brew install libarchive` (the Makefile's `mkinitramfs`
+step packs the initramfs with bsdtar's newc format)
+
+**"anyzig not found"?** Install [anyzig](https://github.com/sno2/anyzig) — it
+pins the Zig versions the Makefile expects (0.15.1 for the userspace, 0.16.0
+for the init).
 
 **QEMU not found?**
 

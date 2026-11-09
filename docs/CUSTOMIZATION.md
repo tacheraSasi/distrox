@@ -5,12 +5,14 @@ This guide shows you how to customize various aspects of the distrox distributio
 ## Table of Contents
 
 - [Kernel Customization](#kernel-customization)
-- [BusyBox Customization](#busybox-customization)
+- [Rootfs Customization](#rootfs-customization)
+- [Userspace (Zig) Customization](#userspace-zig-customization)
 - [Init System Customization](#init-system-customization)
 - [Bootloader Customization](#bootloader-customization)
 - [Adding Software](#adding-software)
 - [Network Configuration](#network-configuration)
 - [Advanced Customization](#advanced-customization)
+- [Testing Customizations](#testing-customizations)
 
 ## Kernel Customization
 
@@ -19,12 +21,18 @@ This guide shows you how to customize various aspects of the distrox distributio
 The easiest way to customize the kernel:
 
 ```bash
-# Start kernel configuration menu
-docker run -it --rm -v $(pwd):/work distrox bash -c \
-    "cd /opt/mydistro/linux && make menuconfig && cp .config /work/linux.config"
+# Build the kernel once so the distrox:kernel image exists
+make kernel
 
-# Rebuild with new configuration
-make clean build
+# Start the kernel configuration menu
+docker run -it --rm -v "$(pwd):/work" distrox:kernel bash
+# inside the container:
+cd /build/linux
+make menuconfig
+cp .config /work/linux.config
+
+# back on the host, rebuild with the new configuration
+make kernel initramfs iso
 ```
 
 ### Common Kernel Options
@@ -61,7 +69,8 @@ File systems --->
 
 ### Manual Configuration
 
-Edit `linux.config` directly:
+Edit `linux.config` directly (it is fed to `make olddefconfig` in the
+`kernel-builder` stage):
 
 ```bash
 # Enable feature
@@ -74,114 +83,86 @@ CONFIG_FEATURE_NAME=m
 # CONFIG_FEATURE_NAME is not set
 ```
 
-## BusyBox Customization
+**Note:** do NOT strip `bzImage` — it is a raw binary with an embedded EFI
+stub; stripping corrupts the boot sector.
 
-### Using menuconfig busybox
+## Rootfs Customization
+
+The Alpine rootfs is built in the `rootfs-builder` stage of the `Dockerfile`.
+
+### Change Installed Packages
+
+Edit the `apk add` list:
+
+```dockerfile
+RUN apk add --no-cache \
+        alpine-base \
+        openrc \
+        python3 \
+    && rm -rf /var/cache/apk/*
+```
+
+Then rebuild: `make rootfs initramfs iso`. Dev tools are intentionally
+excluded — it is usually cheaper to `apk add` them inside the running guest
+(Assuming the network works, see [Network Configuration](#network-configuration)).
+
+### Runlevels / Services
+
+The standard OpenRC runlevels are enabled in the Dockerfile (`rc-update add
+...`). To add a service, add a `RUN rc-update add <service> default` line
+there, or run `rc-update` inside the guest.
+
+### Console Login
+
+The rootfs spawns an auto root shell on tty1 (askfirst) and ttyS0
+(respawn) via `/etc/inittab`, configured in the Dockerfile.
+
+## Userspace (Zig) Customization
+
+Zig sources live in `userspace/` (a busybox-style multi-call binary,
+dispatching on `argv[0]` or the first argument) and `init/` (PID 1).
+
+### Add a New Command
+
+1. Add the implementation under `userspace/src/`
+2. Register it in `userspace/src/commands/listing.zig` (keep the
+   `enabled` flag accurate for Linux)
+3. Sync the `ZIG_COMMANDS` list in `scripts/mkinitramfs.sh` (it generates the
+   profile aliases that route commands to the Zig binary)
+4. Rebuild:
 
 ```bash
-# Start BusyBox configuration menu
-docker run -it --rm -v $(pwd):/work distrox bash -c \
-    "cd /opt/mydistro/busybox && make menuconfig && cp .config /work/busybox.config"
-
-# Rebuild
-make clean build
+make userspace initramfs iso
 ```
 
-### Common BusyBox Options
+### Build Tuning
 
-#### Enable All Applets
-
-```sh
-Busybox Settings --->
-    [*] Build BusyBox as a static binary (no shared libs)
-
-[*] Enable all applets (to include everything)
-```
-
-#### Network Utilities
-
-```sh
-Networking Utilities --->
-    [*] httpd
-    [*] ftpd
-    [*] telnetd
-    [*] wget
-    [*] nc (netcat)
-```
-
-#### Text Editors
-
-```sh
-Editors --->
-    [*] vi
-    [*] sed
-    [*] awk
-```
+- Userspace: `anyzig 0.15.1`, `-Doptimize=ReleaseFast`, target
+  `x86_64-linux-musl` (see the `make userspace` rule in the `Makefile`)
+- Init: `anyzig 0.16.0`, `--release=small`, target `x86_64-linux-musl`
 
 ## Init System Customization
 
-### Basic Customization
+### Zig PID 1 (`/init`)
 
-Edit `init.sh` to customize the boot process:
-
-```bash
-#!/bin/sh
-
-# Your custom initialization here
-
-# Example: Set custom hostname
-HOSTNAME="my-custom-name"
-hostname "${HOSTNAME}"
-
-# Example: Mount additional filesystems
-mkdir -p /data
-mount -t tmpfs tmpfs /data
-
-# Example: Start network
-ifconfig eth0 up
-udhcpc -i eth0 -s /etc/udhcpc/default.script
-
-# Example: Start services
-/usr/sbin/httpd -h /www
-/usr/sbin/telnetd
-
-# Drop to shell
-exec /bin/sh
-```
-
-### Adding Startup Scripts
-
-Create `/etc/init.d/` directory and add scripts:
+The Zig init in `init/` becomes `/init` in the initramfs. See
+`init/README.md` for how it works (SIGCHLD handler, mounts, device nodes,
+fork/exec shell loop). To change behavior (extra mounts, different shell,
+services), edit `init/src/main.zig` and rebuild:
 
 ```bash
-# In Dockerfile, after copying init.sh:
-RUN mkdir -p /build/initramfs/etc/init.d
-
-COPY startup-scripts/* /build/initramfs/etc/init.d/
-RUN chmod +x /build/initramfs/etc/init.d/*
+make init initramfs iso
 ```
 
-Then modify `init.sh`:
+The initramfs (`scripts/mkinitramfs.sh`) only uses the Zig init if
+`init/zig-out/bin/init` exists and is executable — otherwise it falls back
+to the shell script `init.sh`.
 
-```bash
-# Run startup scripts
-for script in /etc/init.d/S*; do
-    [ -x "$script" ] && "$script" start
-done
-```
+### Shell Fallback (`init.sh`)
 
-### Environment Variables
-
-Customize environment in `init.sh`:
-
-```bash
-export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-export HOME="/root"
-export USER="root"
-export HOSTNAME="distrox"
-export TERM="linux"
-export PS1='\[\033[1;32m\]\u@\h\[\033[0m\]:\[\033[1;34m\]\w\[\033[0m\]\$ '
-```
+`init.sh` is copied into the rootfs image as `/init` (see the `rootfs-builder`
+stage) so there is always a bootable fallback. Edit it for quick experiments
+without a Zig toolchain.
 
 ## Bootloader Customization
 
@@ -211,227 +192,139 @@ Common kernel boot parameters:
 quiet           # Suppress most boot messages
 loglevel=7      # Verbose kernel messages
 console=ttyS0   # Serial console output
-root=/dev/sda1  # Root filesystem device
 ro              # Mount root read-only
 rw              # Mount root read-write
-init=/bin/sh    # Custom init program
 ```
 
 ## Adding Software
 
-### Method 1: Add to Initramfs
+### Method 1: Bake into the Rootfs
 
-Edit Dockerfile to add software during build:
+Add packages (Alpine apk) to the `apk add` list in the `rootfs-builder` stage
+of the `Dockerfile` — see [Rootfs Customization](#rootfs-customization).
 
-```dockerfile
-# After BusyBox installation
-FROM busybox-builder AS custom-software
+### Method 2: Static Zig/Go/C Binaries
 
-WORKDIR /build/initramfs
+Cross-compile a static binary on your host, then inject it into the
+initramfs:
 
-# Download and install custom software
-RUN wget https://example.com/software.tar.gz && \
-    tar xzf software.tar.gz && \
-    cd software && \
-    ./configure --prefix=/usr && \
-    make && \
-    make install DESTDIR=/build/initramfs && \
-    cd .. && \
-    rm -rf software.tar.gz software
+```bash
+make userspace init initramfs iso   # mkinitramfs copies everything from userspace/zig-out/bin/ into /usr/local/bin/
 ```
 
-### Method 2: Compile Statically
+For your own binaries, drop them into `userspace/zig-out/bin/` (they will
+land in `/usr/local/bin/` of the initramfs), or extend
+`scripts/mkinitramfs.sh`.
 
-For C programs:
+### Method 3: Install Inside the Guest
 
-```dockerfile
-RUN cd /build/custom && \
-    gcc -static -o myprogram myprogram.c && \
-    cp myprogram /build/initramfs/usr/bin/
-```
-
-### Method 3: Copy Binaries
-
-```dockerfile
-COPY --from=some-image /usr/bin/program /build/initramfs/usr/bin/
-```
+Boot and use `apk add` (the rootfs ships `apk` and DHCP on eth0). Nothing
+built this way survives a reboot (the initramfs is in RAM) — bake permanent
+changes into the Dockerfile instead.
 
 ### Example: Add Python
 
 ```dockerfile
-FROM builder-base AS python-builder
-
-RUN cd /build && \
-    wget https://www.python.org/ftp/python/3.11.0/Python-3.11.0.tgz && \
-    tar xzf Python-3.11.0.tgz && \
-    cd Python-3.11.0 && \
-    ./configure --prefix=/usr --enable-optimizations && \
-    make -j$(nproc) && \
-    make install DESTDIR=/build/python-install
-
-FROM initramfs-builder AS final-initramfs
-COPY --from=python-builder /build/python-install /build/initramfs/
+# In the rootfs-builder stage of the Dockerfile:
+RUN apk add --no-cache python3
 ```
 
 ## Network Configuration
 
-### Static IP Configuration
+The Alpine rootfs ships `ifupdown` with this `/etc/network/interfaces`
+(written in the `rootfs-builder` stage):
 
-Add to `init.sh`:
+```sh
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
+```
+
+In QEMU, make sure the NIC driver is in the kernel (`CONFIG_E1000=y` is in
+`linux.config`) and boot with networking:
 
 ```bash
-# Configure network interface
-ifconfig eth0 192.168.1.100 netmask 255.255.255.0 up
-route add default gw 192.168.1.1
+make qemu-network
+```
 
-# Configure DNS
+### Static IP (inside the guest)
+
+```bash
+ip addr add 192.168.1.100/24 dev eth0
+ip route add default via 192.168.1.1
 echo "nameserver 8.8.8.8" > /etc/resolv.conf
-echo "nameserver 8.8.4.4" >> /etc/resolv.conf
 ```
 
-### DHCP Configuration
-
-Add to `init.sh`:
+### DHCP (inside the guest)
 
 ```bash
-# Start DHCP client
-udhcpc -i eth0 -s /etc/udhcpc/default.script
-```
-
-Create DHCP script at `/etc/udhcpc/default.script`:
-
-```bash
-#!/bin/sh
-
-case "$1" in
-    bound|renew)
-        ip addr add $ip/$mask dev $interface
-        [ -n "$router" ] && ip route add default via $router
-        [ -n "$dns" ] && echo "nameserver $dns" > /etc/resolv.conf
-        ;;
-    deconfig)
-        ip addr flush dev $interface
-        ;;
-esac
+udhcpc -i eth0
 ```
 
 ## Advanced Customization
 
-### Multi-Architecture Support
+### Different Kernel Version
 
-Build for different architectures:
+Override the `LINUX_VERSION` build argument of the `kernel-builder` stage:
 
-```dockerfile
-ARG ARCH=x86_64
-
-FROM debian:sid-slim AS builder-base
-RUN apt-get update && \
-    apt-get install -yq crossbuild-essential-${ARCH}
+```bash
+docker build --target kernel-builder \
+    --build-arg LINUX_VERSION=v6.7 \
+    -t distrox:kernel .
+docker create --name distrox-kernel distrox:kernel
+mkdir -p build
+docker cp distrox-kernel:/build/linux/arch/x86/boot/bzImage build/bzImage
+docker rm distrox-kernel
 ```
+
+Then continue with `make initramfs iso`. The default in the Dockerfile is
+`ARG LINUX_VERSION=master`.
 
 ### Adding System Users
 
-In `init.sh`:
+Bake into the rootfs (Dockerfile, `rootfs-builder` stage):
 
-```bash
-# Create users and groups
-echo "root:x:0:0:root:/root:/bin/sh" > /etc/passwd
-echo "user:x:1000:1000:user:/home/user:/bin/sh" >> /etc/passwd
-echo "root:x:0:" > /etc/group
-echo "user:x:1000:" >> /etc/group
-
-# Create home directories
-mkdir -p /home/user
-chown 1000:1000 /home/user
+```dockerfile
+RUN echo 'user:x:1000:1000:user:/home/user:/bin/ash' >> /etc/passwd && \
+    mkdir -p /home/user && chown 1000:1000 /home/user
 ```
 
-### Adding System Services
+### Custom Welcome Message
 
-Create a simple service manager in `init.sh`:
+Write `/etc/motd` in the `rootfs-builder` stage:
 
-```bash
-# Service manager functions
-start_service() {
-    name=$1
-    cmd=$2
-    pidfile="/var/run/${name}.pid"
-    
-    if [ -f "$pidfile" ]; then
-        echo "Service $name already running"
-        return 1
-    fi
-    
-    $cmd &
-    echo $! > "$pidfile"
-    echo "Started $name (PID $(cat $pidfile))"
-}
-
-stop_service() {
-    name=$1
-    pidfile="/var/run/${name}.pid"
-    
-    if [ ! -f "$pidfile" ]; then
-        echo "Service $name not running"
-        return 1
-    fi
-    
-    kill $(cat "$pidfile")
-    rm "$pidfile"
-    echo "Stopped $name"
-}
-
-# Start services
-start_service httpd "/usr/sbin/httpd -h /www"
-start_service telnetd "/usr/sbin/telnetd"
+```dockerfile
+RUN cat > /etc/motd << 'EOF'
+╔═══════════════════════════════════════╗
+║   Welcome to Custom Linux System      ║
+║   Built with distrox                  ║
+╚═══════════════════════════════════════╝
+EOF
 ```
 
-### Adding Persistent Storage
+`ash` shows `/etc/motd` on login automatically.
+
+### Persistent Storage
 
 Mount a persistent volume:
 
 ```bash
-# In init.sh
+# inside the guest
 mkdir -p /data
-if [ -e /dev/sda1 ]; then
-    mount /dev/sda1 /data
-    echo "Mounted persistent storage"
-fi
+mount /dev/sda1 /data
 ```
 
 In QEMU:
 
 ```bash
-# Create data disk
 qemu-img create -f raw data.img 1G
-mkfs.ext4 data.img
 
-# Boot with data disk
 qemu-system-x86_64 \
-    -cdrom output.iso \
-    -drive file=data.img,format=raw \
-    -m 512M
-```
-
-### Custom Welcome Message
-
-Create `/etc/motd`:
-
-```bash
-# In Dockerfile
-RUN cat > /build/initramfs/etc/motd << 'EOF'
-╔═══════════════════════════════════════╗
-║   Welcome to Custom Linux System      ║
-║   Built with distrox               ║
-╚═══════════════════════════════════════╝
-
-For help: busybox --help
-EOF
-```
-
-Show in `init.sh`:
-
-```bash
-[ -f /etc/motd ] && cat /etc/motd
+    -cdrom build/output.iso \
+    -m 2048M \
+    -drive file=data.img,format=raw
 ```
 
 ## Testing Customizations
@@ -439,52 +332,52 @@ Show in `init.sh`:
 ### Build and Test
 
 ```bash
-# Build with customizations
-make clean build
-
-# Extract artifacts
-make extract
-
-# Test with QEMU
+make build       # full chain: kernel + rootfs + userspace + init + initramfs + iso
 make qemu-nographic
 ```
 
 ### Quick Iteration
 
-For rapid testing of init script changes:
+Only some steps changed? Re-run just those (each is cached):
 
 ```bash
-# Extract current initramfs
-mkdir -p /tmp/initramfs
-cd /tmp/initramfs
-gunzip -c ~/workspace/distrox/initramfs | cpio -idmv
-
-# Modify init script
-nano init
-
-# Rebuild initramfs
-find . | cpio -H newc -o | gzip -9 > ~/workspace/distrox/initramfs
-
-# Test immediately
-qemu-system-x86_64 \
-    -kernel ~/workspace/distrox/bzImage \
-    -initrd ~/workspace/distrox/initramfs \
-    -nographic
+make rootfs initramfs iso     # after Dockerfile rootfs changes
+make userspace initramfs iso  # after userspace/ changes
+make iso                      # after syslinux.cfg changes (no rebuild needed)
 ```
+
+After a kernel config change:
+
+```bash
+make kernel initramfs iso
+```
+
+### Inspect the initramfs directly
+
+```bash
+mkdir -p /tmp/initramfs && cd /tmp/initramfs
+gunzip -c ../../build/initramfs | bsdtar -xf -
+# inspect / init script, /usr/local/bin (Zig tools), etc.
+```
+
+Or iterate inside QEMU directly — the guest ships `apk` and a root shell as
+PID 1 host, so you can prototype changes live and port them into the
+Dockerfile / Zig sources once they work (RAM-only, nothing persists).
 
 ## Best Practices
 
-1. **Test incrementally** - Make small changes and test frequently
-2. **Keep backups** - Save working configurations
-3. **Document changes** - Comment your modifications
-4. **Use version control** - Track configuration changes with Git
-5. **Start simple** - Add complexity gradually
-6. **Review logs** - Check kernel and system logs for errors
+1. **Test incrementally** — re-run only the affected make targets
+2. **Keep backups** — save working configurations (`linux.config`, syslinux.cfg, Dockerfile)
+3. **Document changes** — comment your modifications
+4. **Use version control** — track configuration changes with Git
+5. **Start simple** — add complexity gradually
+6. **Remember ephemerality** — the initramfs is RAM-only; bake permanent changes into the Dockerfile / Zig sources
 
 ## Resources
 
 - [Linux Kernel Documentation](https://www.kernel.org/doc/html/latest/)
-- [BusyBox Documentation](https://busybox.net/docs/)
+- [Alpine Wiki](https://wiki.alpinelinux.org/wiki/Main_Page)
+- [OpenRC](https://wiki.gentoo.org/wiki/OpenRC)
 - [Syslinux Documentation](https://wiki.syslinux.org/)
 - [Linux From Scratch](http://www.linuxfromscratch.org/)
 
