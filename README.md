@@ -295,8 +295,9 @@ docker builder prune -f
 **`xorriso` / `bsdtar` / `anyzig` not found?**
 
 ```bash
-brew install xorriso libarchive        # macOS
-sudo apt install xorriso libarchive-tools  # Debian/Ubuntu
+sudo pacman -S libisoburn libarchive              # Arch (omarchy)
+brew install xorriso libarchive                   # macOS
+sudo apt install xorriso libarchive-tools         # Debian/Ubuntu
 # anyzig: https://github.com/sno2/anyzig
 ```
 

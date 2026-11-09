@@ -6,9 +6,9 @@ Get up and running with distrox!
 
 - Docker (for the kernel + rootfs compiles)
 - `anyzig` for building the userspace and init (pins Zig 0.15.1 / 0.16.0)
-- `xorriso` for ISO assembly (`brew install xorriso` / `sudo apt install xorriso`)
+- `xorriso` for ISO assembly (`sudo pacman -S libisoburn` / `brew install xorriso` / `sudo apt install xorriso`)
 - `bsdtar` from libarchive for initramfs packing
-  (`brew install libarchive` / `sudo apt install libarchive-tools`)
+  (`sudo pacman -S libarchive` / `brew install libarchive` / `sudo apt install libarchive-tools`)
 - (Optional) QEMU for testing
 
 Verify with `make check-deps`.
@@ -81,9 +81,9 @@ make help              # all targets
 rm -rf build && make build
 ```
 
-**"xorriso not found"?** `brew install xorriso`
+**"xorriso not found"?** `sudo pacman -S libisoburn`
 
-**"bsdtar not found"?** `brew install libarchive` (the Makefile's `mkinitramfs`
+**"bsdtar not found"?** `sudo pacman -S libarchive` (the Makefile's `mkinitramfs`
 step packs the initramfs with bsdtar's newc format)
 
 **"anyzig not found"?** Install [anyzig](https://github.com/sno2/anyzig) — it
@@ -93,7 +93,9 @@ for the init).
 **QEMU not found?**
 
 ```bash
-brew install qemu
+sudo pacman -S qemu-desktop   # Arch (omarchy)
+brew install qemu             # macOS
+sudo apt install qemu-system-x86  # Debian/Ubuntu
 ```
 
 **Rootfs bloat?** Reduce the `apk add` list in the `rootfs-builder` stage of

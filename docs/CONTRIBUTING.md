@@ -55,6 +55,7 @@ Enhancement suggestions are tracked as GitHub issues. When suggesting an enhance
 # xorriso + libarchive/bsdtar (initramfs + ISO steps)
 # anyzig (Zig userspace + init builds)
 # QEMU (optional, for testing)
+sudo pacman -S libisoburn libarchive qemu-desktop  # Arch (omarchy)
 brew install xorriso libarchive qemu  # macOS
 sudo apt-get install xorriso libarchive-tools qemu-system-x86  # Ubuntu
 # anyzig: https://github.com/sno2/anyzig
